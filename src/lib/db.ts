@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { randomUUID } from "crypto";
 import { hashSync } from "bcryptjs";
 import postgres from "postgres";
 
