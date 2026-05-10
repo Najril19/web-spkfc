@@ -23,7 +23,8 @@ export async function loginAction(formData: FormData) {
   try {
     const rows = await sql`SELECT * FROM users WHERE email = ${email}`;
     user = rows[0] as UserRow | undefined;
-  } catch {
+  } catch (error) {
+    console.error("loginAction: failed to query user", error);
     redirect(`/login?error=${encodeURIComponent("Server/database bermasalah, coba lagi")}`);
   }
 
@@ -38,7 +39,8 @@ export async function loginAction(formData: FormData) {
     session.role = user.role;
     session.nama_lengkap = user.nama_lengkap;
     await session.save();
-  } catch {
+  } catch (error) {
+    console.error("loginAction: failed to save session", error);
     redirect(`/login?error=${encodeURIComponent("Gagal membuat sesi login, coba lagi")}`);
   }
 
@@ -57,7 +59,8 @@ export async function registerAction(formData: FormData) {
   let existing: unknown[] = [];
   try {
     existing = await sql`SELECT id FROM users WHERE email = ${email}`;
-  } catch {
+  } catch (error) {
+    console.error("registerAction: failed to query existing user", error);
     redirect(`/register?error=${encodeURIComponent("Server/database bermasalah, coba lagi")}`);
   }
   if (existing.length > 0) {

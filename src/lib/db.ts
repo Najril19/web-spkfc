@@ -11,17 +11,50 @@ declare global {
 
 type Tx = postgres.TransactionSql;
 
+/** Trim + hapus kutip yang sering ikut saat copy-paste dari Neon/Railway dashboard. */
+function normalizeDatabaseUrl(raw: string | undefined): string {
+  if (!raw) return "";
+  let u = raw.trim();
+  if (
+    u.length >= 2 &&
+    ((u.startsWith('"') && u.endsWith('"')) ||
+      (u.startsWith("'") && u.endsWith("'")))
+  ) {
+    u = u.slice(1, -1).trim();
+  }
+  return u;
+}
+
 function createSql(): postgres.Sql {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = normalizeDatabaseUrl(process.env.DATABASE_URL);
   if (!connectionString) {
     throw new Error(
       "DATABASE_URL is not set. Add your Neon Postgres connection string (e.g. postgresql://user:pass@host/db?sslmode=require).",
     );
   }
+
+  let useSsl = true;
+  try {
+    const parsed = new URL(connectionString);
+    const host = parsed.hostname.toLowerCase();
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode === "disable") {
+      useSsl = false;
+    } else if (host === "localhost" || host === "127.0.0.1") {
+      useSsl = false;
+    }
+  } catch {
+    // Keep SSL enabled as safer default for hosted DBs.
+    useSsl = true;
+  }
+
   return postgres(connectionString, {
     max: 10,
     idle_timeout: 20,
     connect_timeout: 10,
+    // Hosted Postgres often sits behind poolers/proxies; prepared statements can break there.
+    prepare: false,
+    ssl: useSsl ? "require" : false,
   });
 }
 
@@ -30,6 +63,83 @@ export function getSql(): postgres.Sql {
     globalThis.__mjm_sql = createSql();
   }
   return globalThis.__mjm_sql;
+}
+
+/**
+ * Diagnosa deploy: koneksi + migrasi schema (sama seperti jalur `sql` / login).
+ * `connectOk` saja bisa true walau login gagal — migrasi/seed bisa beda.
+ */
+export async function pingDatabase(): Promise<{
+  ok: boolean;
+  configured: boolean;
+  connectOk: boolean;
+  migrationOk: boolean;
+  migrationError?: string;
+  postgresCode?: string;
+  hint?: string;
+}> {
+  const configured = Boolean(normalizeDatabaseUrl(process.env.DATABASE_URL));
+  if (!configured) {
+    return {
+      ok: false,
+      configured: false,
+      connectOk: false,
+      migrationOk: false,
+      hint: "DATABASE_URL belum di-set di environment server. File .env di laptop tidak ikut deploy — set di Railway/Vercel → Variables.",
+    };
+  }
+  try {
+    await getSql()`SELECT 1`;
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    const postgresCode =
+      typeof err.code === "string" ? err.code : undefined;
+    let hint =
+      "Periksa connection string di Neon/Railway: host, user, password, nama DB, dan ?sslmode=require.";
+    if (postgresCode === "28P01") {
+      hint = "Autentikasi Postgres gagal — user/password di DATABASE_URL salah.";
+    }
+    if (postgresCode === "3D000") {
+      hint = "Database tidak ada — cek nama DB di URL.";
+    }
+    if (postgresCode === "ENOTFOUND") {
+      hint = "Host tidak ketemu — hostname di DATABASE_URL salah.";
+    }
+    if (postgresCode === "ETIMEDOUT" || postgresCode === "ECONNREFUSED") {
+      hint =
+        "Tidak bisa menyambung ke server DB — cek host/port, Neon aktif, dan IP allowlist jika dipakai.";
+    }
+    return {
+      ok: false,
+      configured: true,
+      connectOk: false,
+      migrationOk: false,
+      postgresCode,
+      hint,
+    };
+  }
+
+  try {
+    await ensureMigrated();
+    return {
+      ok: true,
+      configured: true,
+      connectOk: true,
+      migrationOk: true,
+    };
+  } catch (e) {
+    const err = e as Error;
+    const msg = err.message ?? String(e);
+    console.error("pingDatabase: migration failed", err);
+    return {
+      ok: false,
+      configured: true,
+      connectOk: true,
+      migrationOk: false,
+      migrationError: msg,
+      hint: "Koneksi OK tapi migrasi/schema gagal — lihat migrationError di response atau log server.",
+    };
+  }
 }
 
 let migratePromise: Promise<void> | null = null;
@@ -56,7 +166,10 @@ export async function getClient(): Promise<postgres.Sql> {
 
 export async function ensureMigrated(): Promise<void> {
   if (!migratePromise) {
-    migratePromise = runMigrate();
+    migratePromise = runMigrate().catch((err) => {
+      migratePromise = null;
+      throw err;
+    });
   }
   await migratePromise;
 }
@@ -123,6 +236,7 @@ async function runMigrate(): Promise<void> {
   const [{ n }] = await raw`SELECT COUNT(*)::int AS n FROM gejala`;
 
   if (Number(n) === 0) {
+    try {
     const gejalaData: [string, string][] = [
       ["GK001", "Mobil Kehilangan Tenaga"],
       ["GK002", "Mobil Sulit Dinyalakan / Distarter"],
@@ -241,15 +355,22 @@ async function runMigrate(): Promise<void> {
         ON CONFLICT (kode_penyakit, kode_gejala) DO NOTHING
       `;
     }
+    } catch (seedErr) {
+      console.error("runMigrate: seed data failed (non-fatal for login)", seedErr);
+    }
   }
 
-  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@local.id";
-  const existing = await raw`SELECT id FROM users WHERE email = ${adminEmail}`;
-  if (existing.length === 0) {
-    const pw = hashSync(process.env.ADMIN_PASSWORD ?? "admin123", 10);
-    await raw`
-      INSERT INTO users (id, email, password_hash, nama_lengkap, role)
-      VALUES (${randomUUID()}, ${adminEmail}, ${pw}, ${"Administrator"}, ${"admin"})
-    `;
+  try {
+    const adminEmail = process.env.ADMIN_EMAIL ?? "admin@local.id";
+    const existing = await raw`SELECT id FROM users WHERE email = ${adminEmail}`;
+    if (existing.length === 0) {
+      const pw = hashSync(process.env.ADMIN_PASSWORD ?? "admin123", 10);
+      await raw`
+        INSERT INTO users (id, email, password_hash, nama_lengkap, role)
+        VALUES (${randomUUID()}, ${adminEmail}, ${pw}, ${"Administrator"}, ${"admin"})
+      `;
+    }
+  } catch (adminErr) {
+    console.error("runMigrate: admin seed failed (non-fatal)", adminErr);
   }
 }
