@@ -8,12 +8,18 @@ export interface SessionData {
   nama_lengkap: string;
 }
 
-const SESSION_SECRET =
-  process.env.IRON_SESSION_SECRET ??
+/** iron-session requires password length ≥ 32 or it throws at runtime (breaks every page using cookies). */
+const FALLBACK_SESSION_SECRET =
   "spkfc_default_secret_change_in_production_32chars!!";
 
+function resolveIronSessionPassword(): string {
+  const raw = process.env.IRON_SESSION_SECRET?.trim();
+  if (raw && raw.length >= 32) return raw;
+  return FALLBACK_SESSION_SECRET;
+}
+
 export const sessionOptions = {
-  password: SESSION_SECRET,
+  password: resolveIronSessionPassword(),
   cookieName: "spkfc_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production",
