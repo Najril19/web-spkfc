@@ -45,10 +45,10 @@ export default async function AdminRelasiPage({
           </div>
         </div>
         <div className="p-5">
-          <form action={createRelasi} className="flex flex-wrap items-end gap-4">
-            <div>
+          <form action={createRelasi} className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="flex flex-col gap-1">
               <label className="form-label">Kerusakan</label>
-              <select name="kode_penyakit" required className="form-select w-auto pr-8">
+              <select name="kode_penyakit" required className="form-select w-full">
                 <option value="">— Pilih Kerusakan —</option>
                 {penyakit.map((p) => (
                   <option key={p.kode_penyakit} value={p.kode_penyakit}>
@@ -57,9 +57,9 @@ export default async function AdminRelasiPage({
                 ))}
               </select>
             </div>
-            <div>
+            <div className="flex flex-col gap-1">
               <label className="form-label">Gejala</label>
-              <select name="kode_gejala" required className="form-select w-auto pr-8">
+              <select name="kode_gejala" required className="form-select w-full">
                 <option value="">— Pilih Gejala —</option>
                 {gejala.map((g) => (
                   <option key={g.kode_gejala} value={g.kode_gejala}>
@@ -68,7 +68,7 @@ export default async function AdminRelasiPage({
                 ))}
               </select>
             </div>
-            <button type="submit" className="btn-primary">
+            <button type="submit" className="btn-primary w-full sm:w-auto">
               <i className="bi bi-plus-lg" /> Tambah Relasi
             </button>
           </form>
@@ -93,13 +93,17 @@ export default async function AdminRelasiPage({
               {relasi.map((r, i) => (
                 <tr key={r.id}>
                   <td className="font-mono text-xs text-slate-400">{i + 1}</td>
-                  <td>
-                    <span className="badge-orange mr-1.5">{r.kode_penyakit}</span>
-                    <span className="text-slate-400">{pn[r.kode_penyakit] ?? ""}</span>
+                  <td className="min-w-[140px]">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="badge-orange shrink-0">{r.kode_penyakit}</span>
+                      <span className="text-slate-400 text-xs">{pn[r.kode_penyakit] ?? ""}</span>
+                    </div>
                   </td>
-                  <td>
-                    <span className="badge-blue mr-1.5">{r.kode_gejala}</span>
-                    <span className="text-slate-400">{gn[r.kode_gejala] ?? ""}</span>
+                  <td className="min-w-[140px]">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="badge-blue shrink-0">{r.kode_gejala}</span>
+                      <span className="text-slate-400 text-xs">{gn[r.kode_gejala] ?? ""}</span>
+                    </div>
                   </td>
                   <td>
                     <ConfirmSubmitForm

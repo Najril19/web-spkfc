@@ -94,9 +94,11 @@ export default async function AdminRiwayatPage({
                     <td className="font-mono text-xs text-slate-400">{i + 1}</td>
                     <td>{formatDateId(String(r.tanggal_diagnosa))}</td>
                     <td className="font-medium">{namaUser[r.id_user] ?? "—"}</td>
-                    <td>
+                    <td className="min-w-[120px]">
                       {r.hasil_penyakit ? (
-                        <span className="badge-orange">{namaPenyakit[r.hasil_penyakit] ?? r.hasil_penyakit}</span>
+                        <span className="badge-orange !whitespace-normal text-center leading-tight">
+                          {namaPenyakit[r.hasil_penyakit] ?? r.hasil_penyakit}
+                        </span>
                       ) : "—"}
                     </td>
                     <td>
