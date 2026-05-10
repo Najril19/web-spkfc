@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #4e73df;
+  --secondary: #858796;
+  --light: #f8f9fc;
+}
+
+body {
+  font-family:
+    "Nunito",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: var(--light);
+}
