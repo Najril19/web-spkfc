@@ -1,75 +1,99 @@
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+type DiagnosaRow = { id: number; tanggal_diagnosa: string; confidence: number | null; hasil_penyakit: string | null };
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
+
 export default async function UserRiwayatPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
 
-  const { data: rows } = await supabase
-    .from("diagnosa")
-    .select("id, tanggal_diagnosa, confidence, hasil_penyakit")
-    .eq("id_user", user.id)
-    .order("tanggal_diagnosa", { ascending: false });
+  const rows = db
+    .prepare("SELECT id, tanggal_diagnosa, confidence, hasil_penyakit FROM diagnosa WHERE id_user = ? ORDER BY tanggal_diagnosa DESC")
+    .all(session.userId) as DiagnosaRow[];
 
-  const kodes = [...new Set((rows ?? []).map((r) => r.hasil_penyakit).filter(Boolean))] as string[];
-  const { data: penyakitList } = kodes.length
-    ? await supabase.from("penyakit").select("kode_penyakit, nama_penyakit").in("kode_penyakit", kodes)
-    : { data: [] as { kode_penyakit: string; nama_penyakit: string }[] };
-  const namaByKode = Object.fromEntries((penyakitList ?? []).map((p) => [p.kode_penyakit, p.nama_penyakit]));
+  const kodes = [...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
+  const namaByKode: Record<string, string> = {};
+  if (kodes.length) {
+    const ph = kodes.map(() => "?").join(",");
+    const pl = db.prepare(`SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`).all(...kodes) as PenyakitRow[];
+    for (const p of pl) namaByKode[p.kode_penyakit] = p.nama_penyakit;
+  }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow">
-      <div className="bg-primary px-4 py-3 text-white">
-        <h5 className="font-bold">Riwayat Diagnosa</h5>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="page-title">Riwayat Diagnosa</h1>
+          <p className="page-sub">Semua riwayat diagnosa kendaraan Anda</p>
+        </div>
+        <Link href="/user/diagnosa" className="btn-primary btn-sm">
+          <i className="bi bi-plus-lg" /> Diagnosa Baru
+        </Link>
       </div>
-      <div className="overflow-x-auto p-4">
-        <table className="w-full min-w-[640px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b bg-gray-50 text-left">
-              <th className="p-2">No</th>
-              <th className="p-2">Tanggal</th>
-              <th className="p-2">Hasil</th>
-              <th className="p-2">Kecocokan</th>
-              <th className="p-2">Aksi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(rows ?? []).map((r, i) => (
-              <tr key={r.id} className="border-b">
-                <td className="p-2">{i + 1}</td>
-                <td className="p-2">{formatDateId(r.tanggal_diagnosa)}</td>
-                <td className="p-2">
-                  {r.hasil_penyakit
-                    ? namaByKode[r.hasil_penyakit] ?? r.hasil_penyakit
-                    : "—"}
-                </td>
-                <td className="p-2">
-                  {r.confidence != null ? `${(r.confidence * 100).toFixed(2)}%` : "—"}
-                </td>
-                <td className="p-2">
-                  <Link
-                    href={`/user/riwayat/${r.id}`}
-                    className="mr-2 inline-flex rounded bg-cyan-600 px-2 py-1 text-xs text-white hover:bg-cyan-700"
-                  >
-                    Detail
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {(!rows || rows.length === 0) && (
+
+      <div className="card">
+        <div className="table-wrapper rounded-xl border-0">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={5} className="p-6 text-center text-gray-500">
-                  Belum ada riwayat
-                </td>
+                <th>No</th>
+                <th>Tanggal</th>
+                <th>Kerusakan Terdeteksi</th>
+                <th>Kecocokan</th>
+                <th>Aksi</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center">
+                    <i className="bi bi-clipboard2-x text-4xl text-slate-300" />
+                    <p className="mt-2 font-medium text-slate-400">Belum ada riwayat diagnosa</p>
+                    <Link href="/user/diagnosa" className="btn-primary btn-sm mt-4 inline-flex">
+                      Mulai Diagnosa
+                    </Link>
+                  </td>
+                </tr>
+              )}
+              {rows.map((r, i) => {
+                const pct = r.confidence != null ? r.confidence * 100 : null;
+                return (
+                  <tr key={r.id}>
+                    <td className="font-mono text-xs text-slate-400">{i + 1}</td>
+                    <td>{formatDateId(r.tanggal_diagnosa)}</td>
+                    <td>
+                      {r.hasil_penyakit ? (
+                        <span className="badge-orange">{namaByKode[r.hasil_penyakit] ?? r.hasil_penyakit}</span>
+                      ) : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td>
+                      {pct != null ? (
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-800">
+                            <div
+                              className={`h-full rounded-full ${pct >= 70 ? "bg-primary" : pct >= 40 ? "bg-orange-600" : "bg-orange-900/90"}`}
+                              style={{ width: `${Math.min(100, pct)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-400">{pct.toFixed(1)}%</span>
+                        </div>
+                      ) : "—"}
+                    </td>
+                    <td>
+                      <Link href={`/user/riwayat/${r.id}`} className="btn-ghost btn-sm">
+                        <i className="bi bi-eye" /> Detail
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

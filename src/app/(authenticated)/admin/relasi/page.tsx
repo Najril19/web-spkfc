@@ -1,5 +1,9 @@
 import { createRelasi, deleteRelasi } from "@/actions/relasi";
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+
+type RelasiRow = { id: number; kode_penyakit: string; kode_gejala: string };
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
+type GejalaRow = { kode_gejala: string; nama_gejala: string };
 
 export default async function AdminRelasiPage({
   searchParams,
@@ -7,112 +11,96 @@ export default async function AdminRelasiPage({
   searchParams: Promise<{ success?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-
-  const { data: relasi } = await supabase
-    .from("relasi")
-    .select("id, kode_penyakit, kode_gejala")
-    .order("id");
-
-  const { data: penyakit } = await supabase
-    .from("penyakit")
-    .select("kode_penyakit, nama_penyakit")
-    .order("kode_penyakit");
-
-  const { data: gejala } = await supabase
-    .from("gejala")
-    .select("kode_gejala, nama_gejala")
-    .order("kode_gejala");
-
-  const pn = Object.fromEntries((penyakit ?? []).map((p) => [p.kode_penyakit, p.nama_penyakit]));
-  const gn = Object.fromEntries((gejala ?? []).map((g) => [g.kode_gejala, g.nama_gejala]));
+  const relasi = db.prepare("SELECT id, kode_penyakit, kode_gejala FROM relasi ORDER BY id").all() as RelasiRow[];
+  const penyakit = db.prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit ORDER BY kode_penyakit").all() as PenyakitRow[];
+  const gejala = db.prepare("SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala").all() as GejalaRow[];
+  const pn = Object.fromEntries(penyakit.map((p) => [p.kode_penyakit, p.nama_penyakit]));
+  const gn = Object.fromEntries(gejala.map((g) => [g.kode_gejala, g.nama_gejala]));
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="page-title">Data Relasi</h1>
+        <p className="page-sub">Hubungan antara kerusakan dan gejala</p>
+      </div>
+
       {(sp.success || sp.error) && (
-        <div
-          className={`rounded-lg p-3 text-sm ${sp.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}
-        >
-          {sp.success ? "Berhasil disimpan." : sp.error}
+        <div className={sp.success ? "alert-success" : "alert-error"}>
+          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
+          {sp.success ? "Data berhasil disimpan." : sp.error}
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow">
-        <h6 className="mb-3 font-bold text-primary">Tambah relasi</h6>
-        <form action={createRelasi} className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-gray-600">Penyakit</label>
-            <select
-              name="kode_penyakit"
-              required
-              className="rounded border px-3 py-2 text-sm"
-            >
-              <option value="">—</option>
-              {(penyakit ?? []).map((p) => (
-                <option key={p.kode_penyakit} value={p.kode_penyakit}>
-                  {p.kode_penyakit} — {p.nama_penyakit}
-                </option>
-              ))}
-            </select>
+      {/* Add form */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-diagram-2-fill text-primary" />
+            <h2 className="section-title">Tambah Relasi</h2>
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-gray-600">Gejala</label>
-            <select
-              name="kode_gejala"
-              required
-              className="rounded border px-3 py-2 text-sm"
-            >
-              <option value="">—</option>
-              {(gejala ?? []).map((g) => (
-                <option key={g.kode_gejala} value={g.kode_gejala}>
-                  {g.kode_gejala} — {g.nama_gejala}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            className="rounded bg-primary px-4 py-2 text-sm font-semibold text-white"
-          >
-            Tambah
-          </button>
-        </form>
+        </div>
+        <div className="p-5">
+          <form action={createRelasi} className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="form-label">Kerusakan</label>
+              <select name="kode_penyakit" required className="form-select w-auto pr-8">
+                <option value="">— Pilih Kerusakan —</option>
+                {penyakit.map((p) => (
+                  <option key={p.kode_penyakit} value={p.kode_penyakit}>
+                    {p.kode_penyakit} — {p.nama_penyakit}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Gejala</label>
+              <select name="kode_gejala" required className="form-select w-auto pr-8">
+                <option value="">— Pilih Gejala —</option>
+                {gejala.map((g) => (
+                  <option key={g.kode_gejala} value={g.kode_gejala}>
+                    {g.kode_gejala} — {g.nama_gejala}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="submit" className="btn-primary">
+              <i className="bi bi-plus-lg" /> Tambah Relasi
+            </button>
+          </form>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow">
-        <div className="bg-primary px-4 py-3 text-white">
-          <h5 className="font-bold">Data relasi</h5>
+      {/* Table */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-table text-primary" />
+            <h2 className="section-title">Daftar Relasi</h2>
+          </div>
+          <span className="badge-blue">{relasi.length} relasi</span>
         </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="border-b bg-gray-50">
-              <tr className="text-left">
-                <th className="p-2">No</th>
-                <th className="p-2">Penyakit</th>
-                <th className="p-2">Gejala</th>
-                <th className="p-2">Aksi</th>
-              </tr>
+        <div className="table-wrapper rounded-none border-0">
+          <table className="table">
+            <thead>
+              <tr><th>No</th><th>Kerusakan</th><th>Gejala</th><th>Aksi</th></tr>
             </thead>
             <tbody>
-              {(relasi ?? []).map((r, i) => (
-                <tr key={r.id} className="border-b">
-                  <td className="p-2">{i + 1}</td>
-                  <td className="p-2">
-                    <span className="font-mono">{r.kode_penyakit}</span>{" "}
-                    {pn[r.kode_penyakit] ?? ""}
+              {relasi.map((r, i) => (
+                <tr key={r.id}>
+                  <td className="font-mono text-xs text-slate-400">{i + 1}</td>
+                  <td>
+                    <span className="badge-orange mr-1.5">{r.kode_penyakit}</span>
+                    <span className="text-slate-400">{pn[r.kode_penyakit] ?? ""}</span>
                   </td>
-                  <td className="p-2">
-                    <span className="font-mono">{r.kode_gejala}</span>{" "}
-                    {gn[r.kode_gejala] ?? ""}
+                  <td>
+                    <span className="badge-blue mr-1.5">{r.kode_gejala}</span>
+                    <span className="text-slate-400">{gn[r.kode_gejala] ?? ""}</span>
                   </td>
-                  <td className="p-2">
+                  <td>
                     <form action={deleteRelasi}>
                       <input type="hidden" name="id" value={r.id} />
-                      <button
-                        type="submit"
-                        className="rounded bg-red-600 px-2 py-1 text-xs text-white"
-                      >
-                        Hapus
+                      <button type="submit" className="btn btn-sm btn-danger">
+                        <i className="bi bi-trash3-fill" />
                       </button>
                     </form>
                   </td>

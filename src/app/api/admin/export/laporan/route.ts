@@ -1,25 +1,28 @@
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import { NextRequest, NextResponse } from "next/server";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 
+type DiagnosaRow = {
+  id: number;
+  tanggal_diagnosa: string;
+  confidence: number | null;
+  hasil_penyakit: string | null;
+  id_user: string;
+};
+
+type UserRow = { id: string; nama_lengkap: string };
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
+
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const session = await getSession();
+  if (!session.userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const { data: pr } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (pr?.role !== "admin") {
+  if (session.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -28,26 +31,40 @@ export async function GET(request: NextRequest) {
   const start_date = searchParams.get("start_date") ?? "";
   const end_date = searchParams.get("end_date") ?? "";
 
-  const { data: rows } = await supabase
-    .from("diagnosa")
-    .select("id, tanggal_diagnosa, confidence, hasil_penyakit, id_user")
-    .gte("tanggal_diagnosa", `${start_date}T00:00:00`)
-    .lte("tanggal_diagnosa", `${end_date}T23:59:59`)
-    .order("tanggal_diagnosa", { ascending: false });
+  const rows = db
+    .prepare(
+      `SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+       FROM diagnosa
+       WHERE tanggal_diagnosa >= ? AND tanggal_diagnosa <= ?
+       ORDER BY tanggal_diagnosa DESC`,
+    )
+    .all(`${start_date}T00:00:00`, `${end_date}T23:59:59`) as DiagnosaRow[];
 
-  const userIds = [...new Set((rows ?? []).map((r) => r.id_user))];
-  const { data: profs } = userIds.length
-    ? await supabase.from("profiles").select("id, nama_lengkap").in("id", userIds)
-    : { data: [] as { id: string; nama_lengkap: string }[] };
-  const namaUser = Object.fromEntries((profs ?? []).map((p) => [p.id, p.nama_lengkap]));
+  const userIds = [...new Set(rows.map((r) => r.id_user))];
+  const namaUser: Record<string, string> = {};
+  if (userIds.length) {
+    const ph = userIds.map(() => "?").join(",");
+    const profs = db
+      .prepare(`SELECT id, nama_lengkap FROM users WHERE id IN (${ph})`)
+      .all(...userIds) as UserRow[];
+    for (const p of profs) namaUser[p.id] = p.nama_lengkap;
+  }
 
-  const kodes = [...new Set((rows ?? []).map((r) => r.hasil_penyakit).filter(Boolean))] as string[];
-  const { data: penyakitRows } = kodes.length
-    ? await supabase.from("penyakit").select("kode_penyakit, nama_penyakit").in("kode_penyakit", kodes)
-    : { data: [] as { kode_penyakit: string; nama_penyakit: string }[] };
-  const namaPenyakit = Object.fromEntries((penyakitRows ?? []).map((p) => [p.kode_penyakit, p.nama_penyakit]));
+  const kodes = [
+    ...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[]),
+  ];
+  const namaPenyakit: Record<string, string> = {};
+  if (kodes.length) {
+    const ph = kodes.map(() => "?").join(",");
+    const penyakitRows = db
+      .prepare(
+        `SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`,
+      )
+      .all(...kodes) as PenyakitRow[];
+    for (const p of penyakitRows) namaPenyakit[p.kode_penyakit] = p.nama_penyakit;
+  }
 
-  const tableBody = (rows ?? []).map((r, i) => [
+  const tableBody = rows.map((r, i) => [
     String(i + 1),
     formatDateId(r.tanggal_diagnosa),
     namaUser[r.id_user] ?? "—",
@@ -60,7 +77,7 @@ export async function GET(request: NextRequest) {
   if (format === "xlsx") {
     const sheetData = [
       ["No", "Tanggal", "Nama User", "Hasil Diagnosa", "Kecocokan"],
-      ...tableBody.map((row) => row),
+      ...tableBody,
     ];
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     const wb = XLSX.utils.book_new();

@@ -1,15 +1,16 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import { computeDiagnosis } from "@/lib/diagnosis";
 import { redirect } from "next/navigation";
 
+type RelasiRow = { kode_penyakit: string; kode_gejala: string };
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
+
 export async function runDiagnosa(formData: FormData) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
 
   const raw = formData.getAll("gejala") as string[];
   const selectedGejala = raw.filter(Boolean);
@@ -17,16 +18,18 @@ export async function runDiagnosa(formData: FormData) {
     redirect("/user/diagnosa?error=Pilih minimal satu gejala.");
   }
 
-  const { data: relRows } = await supabase.from("relasi").select("kode_penyakit, kode_gejala");
-  const { data: penyakitRows } = await supabase
-    .from("penyakit")
-    .select("kode_penyakit, nama_penyakit");
+  const relRows = db
+    .prepare("SELECT kode_penyakit, kode_gejala FROM relasi")
+    .all() as RelasiRow[];
+  const penyakitRows = db
+    .prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit")
+    .all() as PenyakitRow[];
 
   const namaMap = Object.fromEntries(
-    (penyakitRows ?? []).map((p) => [p.kode_penyakit, p.nama_penyakit]),
+    penyakitRows.map((p) => [p.kode_penyakit, p.nama_penyakit]),
   );
 
-  const relasi = (relRows ?? []).map((r) => ({
+  const relasi = relRows.map((r) => ({
     kode_penyakit: r.kode_penyakit,
     kode_gejala: r.kode_gejala,
     nama_penyakit: namaMap[r.kode_penyakit] ?? r.kode_penyakit,
@@ -37,28 +40,21 @@ export async function runDiagnosa(formData: FormData) {
   const hasil_penyakit = top?.kode_penyakit ?? null;
   const confidence = top?.confidence ?? 0;
 
-  const { data: inserted, error: e1 } = await supabase
-    .from("diagnosa")
-    .insert({
-      id_user: user.id,
-      hasil_penyakit,
-      confidence,
-    })
-    .select("id")
-    .single();
+  const inserted = db
+    .prepare(
+      "INSERT INTO diagnosa (id_user, hasil_penyakit, confidence) VALUES (?, ?, ?)",
+    )
+    .run(session.userId, hasil_penyakit, confidence);
 
-  if (e1 || !inserted) {
-    redirect(`/user/diagnosa?error=${encodeURIComponent(e1?.message ?? "Gagal menyimpan diagnosa")}`);
-  }
+  const diagnosaId = inserted.lastInsertRowid as number;
 
-  const diagnosaId = inserted.id;
-
-  for (const kode of selectedGejala) {
-    await supabase.from("diagnosa_detail").insert({
-      id_diagnosa: diagnosaId,
-      kode_gejala: kode,
-    });
-  }
+  const insertDetail = db.prepare(
+    "INSERT OR IGNORE INTO diagnosa_detail (id_diagnosa, kode_gejala) VALUES (?, ?)",
+  );
+  const insertMany = db.transaction((kodes: string[]) => {
+    for (const k of kodes) insertDetail.run(diagnosaId, k);
+  });
+  insertMany(selectedGejala);
 
   redirect(`/user/hasil-diagnosa/${diagnosaId}`);
 }
@@ -67,14 +63,12 @@ export async function deleteDiagnosaUser(formData: FormData) {
   const id = Number(formData.get("id"));
   if (!id) return;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
 
-  await supabase.from("diagnosa_detail").delete().eq("id_diagnosa", id);
-  await supabase.from("diagnosa").delete().eq("id", id).eq("id_user", user.id);
+  db.prepare(
+    "DELETE FROM diagnosa WHERE id = ? AND id_user = ?",
+  ).run(id, session.userId);
 
   redirect("/user/riwayat");
 }
@@ -83,21 +77,11 @@ export async function deleteDiagnosaAdmin(formData: FormData) {
   const id = Number(formData.get("id"));
   if (!id) return;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
+  if (session.role !== "admin") redirect("/user/dashboard");
 
-  const { data: pr } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (pr?.role !== "admin") redirect("/user/dashboard");
-
-  await supabase.from("diagnosa_detail").delete().eq("id_diagnosa", id);
-  await supabase.from("diagnosa").delete().eq("id", id);
+  db.prepare("DELETE FROM diagnosa WHERE id = ?").run(id);
 
   redirect("/admin/riwayat");
 }

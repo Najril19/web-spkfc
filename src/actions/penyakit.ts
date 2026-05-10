@@ -1,76 +1,52 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 
 async function requireAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data: pr } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (pr?.role !== "admin") redirect("/user/dashboard");
-  return supabase;
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
+  if (session.role !== "admin") redirect("/user/dashboard");
 }
 
 export async function createPenyakit(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_penyakit = String(formData.get("kode_penyakit") ?? "").trim();
   const nama_penyakit = String(formData.get("nama_penyakit") ?? "").trim();
   const deskripsi = String(formData.get("deskripsi") ?? "");
   const solusi = String(formData.get("solusi") ?? "");
   const pencegahan = String(formData.get("pencegahan") ?? "");
 
-  const { error } = await supabase.from("penyakit").insert({
-    kode_penyakit,
-    nama_penyakit,
-    deskripsi,
-    solusi,
-    pencegahan,
-  });
-
-  redirect(
-    error
-      ? `/admin/penyakit?error=${encodeURIComponent(error.message)}`
-      : "/admin/penyakit?success=1",
-  );
+  try {
+    db.prepare(
+      "INSERT INTO penyakit (kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan) VALUES (?, ?, ?, ?, ?)",
+    ).run(kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan);
+    redirect("/admin/penyakit?success=1");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Gagal menyimpan";
+    redirect(`/admin/penyakit?error=${encodeURIComponent(msg)}`);
+  }
 }
 
 export async function updatePenyakit(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_penyakit = String(formData.get("kode_penyakit") ?? "").trim();
   const nama_penyakit = String(formData.get("nama_penyakit") ?? "").trim();
   const deskripsi = String(formData.get("deskripsi") ?? "");
   const solusi = String(formData.get("solusi") ?? "");
   const pencegahan = String(formData.get("pencegahan") ?? "");
 
-  const { error } = await supabase
-    .from("penyakit")
-    .update({ nama_penyakit, deskripsi, solusi, pencegahan })
-    .eq("kode_penyakit", kode_penyakit);
-
-  redirect(
-    error
-      ? `/admin/penyakit?error=${encodeURIComponent(error.message)}`
-      : "/admin/penyakit?success=1",
-  );
+  db.prepare(
+    "UPDATE penyakit SET nama_penyakit = ?, deskripsi = ?, solusi = ?, pencegahan = ? WHERE kode_penyakit = ?",
+  ).run(nama_penyakit, deskripsi, solusi, pencegahan, kode_penyakit);
+  redirect("/admin/penyakit?success=1");
 }
 
 export async function deletePenyakit(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_penyakit = String(formData.get("kode_penyakit") ?? "").trim();
 
-  await supabase.from("relasi").delete().eq("kode_penyakit", kode_penyakit);
-  const { error } = await supabase.from("penyakit").delete().eq("kode_penyakit", kode_penyakit);
-
-  redirect(
-    error
-      ? `/admin/penyakit?error=${encodeURIComponent(error.message)}`
-      : "/admin/penyakit?success=1",
-  );
+  db.prepare("DELETE FROM penyakit WHERE kode_penyakit = ?").run(kode_penyakit);
+  redirect("/admin/penyakit?success=1");
 }

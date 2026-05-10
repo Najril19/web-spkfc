@@ -1,117 +1,77 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
+import { hashSync } from "bcryptjs";
+import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 
 async function requireAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data: pr } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (pr?.role !== "admin") redirect("/user/dashboard");
-  return { supabase, user };
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
+  if (session.role !== "admin") redirect("/user/dashboard");
+  return session;
 }
 
 export async function adminCreateUser(formData: FormData) {
   await requireAdmin();
-  const service = createServiceClient();
-  if (!service) {
-    redirect(
-      "/admin/pengguna?error=" +
-        encodeURIComponent(
-          "SUPABASE_SERVICE_ROLE_KEY belum di-set (.env.local). Diperlukan untuk menambah pengguna.",
-        ),
-    );
-  }
 
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const nama_lengkap = String(formData.get("nama_lengkap") ?? "").trim();
-  const role = (String(formData.get("role") ?? "user") as "admin" | "user");
+  const role = (String(formData.get("role") ?? "user")) as "admin" | "user";
 
-  const { data: created, error } = await service.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { nama_lengkap },
-  });
-
-  if (error || !created.user) {
-    redirect(
-      `/admin/pengguna?error=${encodeURIComponent(error?.message ?? "Gagal membuat pengguna")}`,
-    );
+  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+  if (existing) {
+    redirect(`/admin/pengguna?error=${encodeURIComponent("Email sudah digunakan")}`);
   }
 
-  await service
-    .from("profiles")
-    .update({ nama_lengkap, role, email })
-    .eq("id", created.user.id);
-
-  redirect("/admin/pengguna?success=1");
+  const password_hash = hashSync(password, 10);
+  try {
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, nama_lengkap, role) VALUES (?, ?, ?, ?, ?)",
+    ).run(randomUUID(), email, password_hash, nama_lengkap, role);
+    redirect("/admin/pengguna?success=1");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Gagal membuat pengguna";
+    redirect(`/admin/pengguna?error=${encodeURIComponent(msg)}`);
+  }
 }
 
 export async function adminUpdateUser(formData: FormData) {
-  const { supabase, user } = await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const nama_lengkap = String(formData.get("nama_lengkap") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const role = String(formData.get("role") ?? "user") as "admin" | "user";
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const role = (String(formData.get("role") ?? "user")) as "admin" | "user";
   const password = String(formData.get("password") ?? "");
 
-  if (id === user.id && role !== "admin") {
+  if (id === session.userId && role !== "admin") {
     redirect("/admin/pengguna?error=Tidak bisa menghapus role admin pada diri sendiri");
   }
 
-  const service = createServiceClient();
-
-  if (service && (email || password)) {
-    const payload: {
-      email?: string;
-      password?: string;
-    } = {};
-    if (email) payload.email = email;
-    if (password.length > 0) payload.password = password;
-    const { error } = await service.auth.admin.updateUserById(id, payload);
-    if (error) {
-      redirect(`/admin/pengguna?error=${encodeURIComponent(error.message)}`);
-    }
+  if (password.length > 0) {
+    const password_hash = hashSync(password, 10);
+    db.prepare(
+      "UPDATE users SET nama_lengkap = ?, email = ?, role = ?, password_hash = ? WHERE id = ?",
+    ).run(nama_lengkap, email, role, password_hash, id);
+  } else {
+    db.prepare(
+      "UPDATE users SET nama_lengkap = ?, email = ?, role = ? WHERE id = ?",
+    ).run(nama_lengkap, email, role, id);
   }
-
-  await supabase
-    .from("profiles")
-    .update({ nama_lengkap, role, email })
-    .eq("id", id);
 
   redirect("/admin/pengguna?success=1");
 }
 
 export async function adminDeleteUser(formData: FormData) {
-  const { user } = await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
 
-  if (id === user.id) {
+  if (id === session.userId) {
     redirect("/admin/pengguna?error=Tidak bisa menghapus akun sendiri");
   }
 
-  const service = createServiceClient();
-  if (!service) {
-    redirect(
-      "/admin/pengguna?error=" +
-        encodeURIComponent("SUPABASE_SERVICE_ROLE_KEY diperlukan untuk menghapus pengguna."),
-    );
-  }
-
-  const { error } = await service.auth.admin.deleteUser(id);
-  if (error) {
-    redirect(`/admin/pengguna?error=${encodeURIComponent(error.message)}`);
-  }
-
+  db.prepare("DELETE FROM users WHERE id = ?").run(id);
   redirect("/admin/pengguna?success=1");
 }

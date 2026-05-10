@@ -1,10 +1,9 @@
-import {
-  adminCreateUser,
-  adminDeleteUser,
-  adminUpdateUser,
-} from "@/actions/pengguna";
-import { createClient } from "@/lib/supabase/server";
+import { adminCreateUser as createPengguna, adminDeleteUser as deletePengguna, adminUpdateUser as updatePengguna } from "@/actions/pengguna";
+import { db } from "@/lib/db";
+import { formatDateId } from "@/lib/format";
 import Link from "next/link";
+
+type UserRow = { id: string; email: string; nama_lengkap: string; role: string; created_at: string | null };
 
 export default async function AdminPenggunaPage({
   searchParams,
@@ -12,165 +11,146 @@ export default async function AdminPenggunaPage({
   searchParams: Promise<{ edit?: string; success?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: rows } = await supabase
-    .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const editing = sp.edit
-    ? (rows ?? []).find((r) => r.id === sp.edit)
-    : undefined;
+  const users = db.prepare("SELECT id, email, nama_lengkap, role, created_at FROM users ORDER BY created_at DESC").all() as UserRow[];
+  const editing = sp.edit ? users.find((u) => u.id === sp.edit) : undefined;
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="page-title">Data Pengguna</h1>
+        <p className="page-sub">Kelola akun pengguna sistem</p>
+      </div>
+
       {(sp.success || sp.error) && (
-        <div
-          className={`rounded-lg p-3 text-sm ${sp.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}
-        >
-          {sp.success ? "Berhasil disimpan." : sp.error}
+        <div className={sp.success ? "alert-success" : "alert-error"}>
+          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
+          {sp.success ? "Data berhasil disimpan." : sp.error}
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow">
-        <h6 className="mb-3 font-bold text-primary">Tambah pengguna</h6>
-        <p className="mb-3 text-xs text-gray-600">
-          Membutuhkan{" "}
-          <code className="rounded bg-gray-100 px-1">SUPABASE_SERVICE_ROLE_KEY</code> di
-          .env.local (server-only).
-        </p>
-        <form action={adminCreateUser} className="grid gap-3 md:grid-cols-2">
-          <input
-            name="nama_lengkap"
-            placeholder="Nama lengkap"
-            required
-            className="rounded border px-3 py-2 text-sm"
-          />
-          <input
-            name="email"
-            type="email"
-            placeholder="Email"
-            required
-            className="rounded border px-3 py-2 text-sm"
-          />
-          <input
-            name="password"
-            type="password"
-            placeholder="Password awal"
-            required
-            minLength={6}
-            className="rounded border px-3 py-2 text-sm"
-          />
-          <div>
-            <label className="mb-1 block text-xs text-gray-600">Role</label>
-            <select name="role" className="w-full rounded border px-3 py-2 text-sm">
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
+      {/* Add form */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-person-plus-fill text-primary" />
+            <h2 className="section-title">Tambah Pengguna</h2>
           </div>
-          <button
-            type="submit"
-            className="rounded bg-primary px-4 py-2 text-sm font-semibold text-white md:col-span-2"
-          >
-            Simpan pengguna
-          </button>
-        </form>
-      </div>
-
-      {editing && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <h6 className="mb-3 font-bold">Edit pengguna</h6>
-          <form action={adminUpdateUser} className="grid gap-3 md:grid-cols-2">
-            <input type="hidden" name="id" value={editing.id} />
-            <input
-              name="nama_lengkap"
-              defaultValue={editing.nama_lengkap}
-              required
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <input
-              name="email"
-              type="email"
-              defaultValue={editing.email ?? ""}
-              required
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <input
-              name="password"
-              type="password"
-              placeholder="Password baru (opsional)"
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
+        </div>
+        <div className="p-5">
+          <form action={createPengguna} className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
             <div>
-              <label className="mb-1 block text-xs text-gray-600">Role</label>
-              <select
-                name="role"
-                defaultValue={editing.role}
-                className="w-full rounded border px-3 py-2 text-sm"
-              >
-                <option value="user">User</option>
+              <label className="form-label">Nama Lengkap</label>
+              <input name="nama_lengkap" required placeholder="Nama pengguna" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Email</label>
+              <input name="email" type="email" required placeholder="email@bengkel.com" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Password</label>
+              <input name="password" type="password" required minLength={6} placeholder="Min. 6 karakter" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Role</label>
+              <select name="role" className="form-select">
+                <option value="user">Teknisi</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <div className="flex gap-2 md:col-span-2">
-              <button
-                type="submit"
-                className="rounded bg-primary px-4 py-2 text-sm font-semibold text-white"
-              >
-                Update
+            <div className="sm:col-span-2 md:col-span-4">
+              <button type="submit" className="btn-primary">
+                <i className="bi bi-person-plus-fill" /> Tambah Pengguna
               </button>
-              <Link href="/admin/pengguna" className="rounded border px-4 py-2 text-sm">
-                Batal
-              </Link>
             </div>
           </form>
         </div>
+      </div>
+
+      {/* Edit form */}
+      {editing && (
+        <div className="card border border-amber-500/40">
+          <div className="card-header border-b border-amber-500/25 bg-amber-950/40">
+            <div className="flex items-center gap-2">
+              <i className="bi bi-pencil-fill text-amber-400" />
+              <h2 className="font-semibold text-amber-100">Edit {editing.nama_lengkap}</h2>
+            </div>
+          </div>
+          <div className="p-5">
+            <form action={updatePengguna} className="grid gap-4 sm:grid-cols-2">
+              <input type="hidden" name="id" value={editing.id} />
+              <div>
+                <label className="form-label">Nama Lengkap</label>
+                <input name="nama_lengkap" defaultValue={editing.nama_lengkap} required className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Email</label>
+                <input name="email" type="email" defaultValue={editing.email} required className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Password Baru (kosongkan jika tidak ganti)</label>
+                <input name="password" type="password" minLength={6} placeholder="•••••••••" className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Role</label>
+                <select name="role" defaultValue={editing.role} className="form-select">
+                  <option value="user">Teknisi</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div className="flex gap-3 sm:col-span-2">
+                <button type="submit" className="btn-primary"><i className="bi bi-check2" /> Update</button>
+                <Link href="/admin/pengguna" className="btn-secondary">Batal</Link>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow">
-        <div className="bg-primary px-4 py-3 text-white">
-          <h5 className="font-bold">Data pengguna</h5>
+      {/* Table */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-people-fill text-primary" />
+            <h2 className="section-title">Daftar Pengguna</h2>
+          </div>
+          <span className="badge-blue">{users.length} pengguna</span>
         </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="border-b bg-gray-50">
-              <tr className="text-left">
-                <th className="p-2">No</th>
-                <th className="p-2">Nama</th>
-                <th className="p-2">Email</th>
-                <th className="p-2">Role</th>
-                <th className="p-2">Aksi</th>
-              </tr>
+        <div className="table-wrapper rounded-none border-0">
+          <table className="table">
+            <thead>
+              <tr><th>No</th><th>Nama</th><th>Email</th><th>Role</th><th>Bergabung</th><th>Aksi</th></tr>
             </thead>
             <tbody>
-              {(rows ?? []).map((r, i) => (
-                <tr key={r.id} className="border-b">
-                  <td className="p-2">{i + 1}</td>
-                  <td className="p-2">{r.nama_lengkap}</td>
-                  <td className="p-2">{r.email ?? "—"}</td>
-                  <td className="p-2">{r.role}</td>
-                  <td className="p-2">
-                    <Link
-                      href={`/admin/pengguna?edit=${r.id}`}
-                      className="mr-2 inline-block rounded bg-amber-500 px-2 py-1 text-xs text-white"
-                    >
-                      Edit
-                    </Link>
-                    {r.id !== user?.id && (
-                      <form action={adminDeleteUser} className="inline">
-                        <input type="hidden" name="id" value={r.id} />
-                        <button
-                          type="submit"
-                          className="rounded bg-red-600 px-2 py-1 text-xs text-white"
-                        >
-                          Hapus
+              {users.map((u, i) => (
+                <tr key={u.id}>
+                  <td className="font-mono text-xs text-slate-400">{i + 1}</td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                        {u.nama_lengkap.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="font-medium">{u.nama_lengkap}</span>
+                    </div>
+                  </td>
+                  <td className="text-slate-400">{u.email}</td>
+                  <td>
+                    <span className={u.role === "admin" ? "badge-orange" : "badge-blue"}>
+                      {u.role === "admin" ? "Admin" : "Teknisi"}
+                    </span>
+                  </td>
+                  <td className="text-slate-400">{formatDateId(u.created_at ?? null)}</td>
+                  <td>
+                    <div className="flex gap-2">
+                      <Link href={`/admin/pengguna?edit=${u.id}`} className="btn btn-sm btn-warning">
+                        <i className="bi bi-pencil-fill" /> Edit
+                      </Link>
+                      <form action={deletePengguna} className="inline">
+                        <input type="hidden" name="id" value={u.id} />
+                        <button type="submit" className="btn btn-sm btn-danger">
+                          <i className="bi bi-trash3-fill" />
                         </button>
                       </form>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}

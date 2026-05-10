@@ -1,10 +1,8 @@
-import {
-  createPenyakit,
-  deletePenyakit,
-  updatePenyakit,
-} from "@/actions/penyakit";
-import { createClient } from "@/lib/supabase/server";
+import { createPenyakit, deletePenyakit, updatePenyakit } from "@/actions/penyakit";
+import { db } from "@/lib/db";
 import Link from "next/link";
+
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string; deskripsi: string | null; solusi: string | null; pencegahan: string | null };
 
 export default async function AdminPenyakitPage({
   searchParams,
@@ -12,148 +10,131 @@ export default async function AdminPenyakitPage({
   searchParams: Promise<{ edit?: string; success?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const { data: rows } = await supabase
-    .from("penyakit")
-    .select("*")
-    .order("kode_penyakit");
-
-  const editing = sp.edit
-    ? (rows ?? []).find((r) => r.kode_penyakit === sp.edit)
-    : undefined;
+  const rows = db.prepare("SELECT * FROM penyakit ORDER BY kode_penyakit").all() as PenyakitRow[];
+  const editing = sp.edit ? rows.find((r) => r.kode_penyakit === sp.edit) : undefined;
 
   return (
     <div className="space-y-6">
+      <div>
+        <h1 className="page-title">Data Kerusakan</h1>
+        <p className="page-sub">Kelola jenis kerusakan kendaraan Toyota Avanza</p>
+      </div>
+
       {(sp.success || sp.error) && (
-        <div
-          className={`rounded-lg p-3 text-sm ${sp.success ? "bg-green-50 text-green-800" : "bg-red-50 text-red-700"}`}
-        >
-          {sp.success ? "Berhasil disimpan." : sp.error}
+        <div className={sp.success ? "alert-success" : "alert-error"}>
+          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
+          {sp.success ? "Data berhasil disimpan." : sp.error}
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow">
-        <h6 className="mb-3 font-bold text-primary">Tambah penyakit</h6>
-        <form action={createPenyakit} className="grid gap-3 md:grid-cols-2">
-          <input
-            name="kode_penyakit"
-            placeholder="Kode (mis. JK08)"
-            required
-            className="rounded border px-3 py-2 text-sm"
-          />
-          <input
-            name="nama_penyakit"
-            placeholder="Nama penyakit"
-            required
-            className="rounded border px-3 py-2 text-sm md:col-span-2"
-          />
-          <textarea
-            name="deskripsi"
-            placeholder="Deskripsi"
-            rows={3}
-            className="rounded border px-3 py-2 text-sm md:col-span-2"
-          />
-          <textarea
-            name="solusi"
-            placeholder="Solusi"
-            rows={3}
-            className="rounded border px-3 py-2 text-sm md:col-span-2"
-          />
-          <textarea
-            name="pencegahan"
-            placeholder="Pencegahan"
-            rows={2}
-            className="rounded border px-3 py-2 text-sm md:col-span-2"
-          />
-          <button
-            type="submit"
-            className="rounded bg-primary px-4 py-2 text-sm font-semibold text-white md:col-span-2"
-          >
-            Simpan
-          </button>
-        </form>
-      </div>
-
-      {editing && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <h6 className="mb-3 font-bold">Edit {editing.kode_penyakit}</h6>
-          <form action={updatePenyakit} className="grid gap-3 md:grid-cols-2">
-            <input type="hidden" name="kode_penyakit" value={editing.kode_penyakit} />
-            <input
-              name="nama_penyakit"
-              defaultValue={editing.nama_penyakit}
-              required
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <textarea
-              name="deskripsi"
-              defaultValue={editing.deskripsi ?? ""}
-              rows={3}
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <textarea
-              name="solusi"
-              defaultValue={editing.solusi ?? ""}
-              rows={3}
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <textarea
-              name="pencegahan"
-              defaultValue={editing.pencegahan ?? ""}
-              rows={2}
-              className="rounded border px-3 py-2 text-sm md:col-span-2"
-            />
-            <div className="flex gap-2 md:col-span-2">
-              <button
-                type="submit"
-                className="rounded bg-primary px-4 py-2 text-sm font-semibold text-white"
-              >
-                Update
+      {/* Add form */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-plus-circle-fill text-primary" />
+            <h2 className="section-title">Tambah Kerusakan</h2>
+          </div>
+        </div>
+        <div className="p-5">
+          <form action={createPenyakit} className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="form-label">Kode</label>
+              <input name="kode_penyakit" placeholder="JK08" required className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Nama Kerusakan</label>
+              <input name="nama_penyakit" placeholder="Nama kerusakan..." required className="form-input" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="form-label">Deskripsi</label>
+              <textarea name="deskripsi" rows={3} placeholder="Deskripsi kerusakan..." className="form-textarea" />
+            </div>
+            <div>
+              <label className="form-label">Solusi</label>
+              <textarea name="solusi" rows={3} placeholder="Solusi perbaikan..." className="form-textarea" />
+            </div>
+            <div>
+              <label className="form-label">Pencegahan</label>
+              <textarea name="pencegahan" rows={3} placeholder="Cara pencegahan..." className="form-textarea" />
+            </div>
+            <div className="md:col-span-2">
+              <button type="submit" className="btn-primary">
+                <i className="bi bi-plus-lg" /> Simpan Kerusakan
               </button>
-              <Link href="/admin/penyakit" className="rounded border px-4 py-2 text-sm">
-                Batal
-              </Link>
             </div>
           </form>
         </div>
+      </div>
+
+      {/* Edit form */}
+      {editing && (
+        <div className="card border border-amber-500/40">
+          <div className="card-header border-b border-amber-500/25 bg-amber-950/40">
+            <div className="flex items-center gap-2">
+              <i className="bi bi-pencil-fill text-amber-400" />
+              <h2 className="font-semibold text-amber-100">Edit {editing.kode_penyakit}</h2>
+            </div>
+          </div>
+          <div className="p-5">
+            <form action={updatePenyakit} className="grid gap-4 md:grid-cols-2">
+              <input type="hidden" name="kode_penyakit" value={editing.kode_penyakit} />
+              <div className="md:col-span-2">
+                <label className="form-label">Nama Kerusakan</label>
+                <input name="nama_penyakit" defaultValue={editing.nama_penyakit} required className="form-input" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="form-label">Deskripsi</label>
+                <textarea name="deskripsi" defaultValue={editing.deskripsi ?? ""} rows={3} className="form-textarea" />
+              </div>
+              <div>
+                <label className="form-label">Solusi</label>
+                <textarea name="solusi" defaultValue={editing.solusi ?? ""} rows={3} className="form-textarea" />
+              </div>
+              <div>
+                <label className="form-label">Pencegahan</label>
+                <textarea name="pencegahan" defaultValue={editing.pencegahan ?? ""} rows={3} className="form-textarea" />
+              </div>
+              <div className="flex gap-3 md:col-span-2">
+                <button type="submit" className="btn-primary"><i className="bi bi-check2" /> Update</button>
+                <Link href="/admin/penyakit" className="btn-secondary">Batal</Link>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow">
-        <div className="bg-primary px-4 py-3 text-white">
-          <h5 className="font-bold">Data penyakit</h5>
+      {/* Table */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <i className="bi bi-tools text-primary" />
+            <h2 className="section-title">Daftar Kerusakan</h2>
+          </div>
+          <span className="badge-orange">{rows.length} data</span>
         </div>
-        <div className="overflow-x-auto p-4">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="border-b bg-gray-50">
-              <tr className="text-left">
-                <th className="p-2">No</th>
-                <th className="p-2">Kode</th>
-                <th className="p-2">Nama</th>
-                <th className="p-2">Aksi</th>
-              </tr>
+        <div className="table-wrapper rounded-none border-0">
+          <table className="table">
+            <thead>
+              <tr><th>No</th><th>Kode</th><th>Nama Kerusakan</th><th>Aksi</th></tr>
             </thead>
             <tbody>
-              {(rows ?? []).map((r, i) => (
-                <tr key={r.kode_penyakit} className="border-b">
-                  <td className="p-2">{i + 1}</td>
-                  <td className="p-2 font-mono">{r.kode_penyakit}</td>
-                  <td className="p-2">{r.nama_penyakit}</td>
-                  <td className="p-2">
-                    <Link
-                      href={`/admin/penyakit?edit=${encodeURIComponent(r.kode_penyakit)}`}
-                      className="mr-2 inline-block rounded bg-amber-500 px-2 py-1 text-xs text-white"
-                    >
-                      Edit
-                    </Link>
-                    <form action={deletePenyakit} className="inline">
-                      <input type="hidden" name="kode_penyakit" value={r.kode_penyakit} />
-                      <button
-                        type="submit"
-                        className="rounded bg-red-600 px-2 py-1 text-xs text-white"
-                      >
-                        Hapus
-                      </button>
-                    </form>
+              {rows.map((r, i) => (
+                <tr key={r.kode_penyakit}>
+                  <td className="font-mono text-xs text-slate-400">{i + 1}</td>
+                  <td><span className="badge-orange">{r.kode_penyakit}</span></td>
+                  <td className="font-medium text-slate-200">{r.nama_penyakit}</td>
+                  <td>
+                    <div className="flex gap-2">
+                      <Link href={`/admin/penyakit?edit=${encodeURIComponent(r.kode_penyakit)}`} className="btn btn-sm btn-warning">
+                        <i className="bi bi-pencil-fill" /> Edit
+                      </Link>
+                      <form action={deletePenyakit} className="inline">
+                        <input type="hidden" name="kode_penyakit" value={r.kode_penyakit} />
+                        <button type="submit" className="btn btn-sm btn-danger">
+                          <i className="bi bi-trash3-fill" />
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

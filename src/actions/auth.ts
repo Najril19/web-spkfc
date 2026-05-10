@@ -1,50 +1,66 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
+import { compareSync, hashSync } from "bcryptjs";
+import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 
+type UserRow = {
+  id: string;
+  email: string;
+  password_hash: string;
+  nama_lengkap: string;
+  role: "admin" | "user";
+  created_at: string;
+};
+
 export async function loginAction(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const user = db
+    .prepare("SELECT * FROM users WHERE email = ?")
+    .get(email) as UserRow | undefined;
 
-  if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`);
+  if (!user || !compareSync(password, user.password_hash)) {
+    redirect(`/login?error=${encodeURIComponent("Email atau password salah")}`);
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  session.userId = user.id;
+  session.email = user.email;
+  session.role = user.role;
+  session.nama_lengkap = user.nama_lengkap;
+  await session.save();
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  redirect(profile?.role === "admin" ? "/admin/dashboard" : "/user/dashboard");
+  redirect(user.role === "admin" ? "/admin/dashboard" : "/user/dashboard");
 }
 
 export async function registerAction(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const nama_lengkap = String(formData.get("nama_lengkap") ?? "").trim();
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { nama_lengkap },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
-    },
-  });
+  if (!email || !password || !nama_lengkap) {
+    redirect(`/register?error=${encodeURIComponent("Semua field wajib diisi")}`);
+  }
 
-  if (error) {
-    redirect(`/register?error=${encodeURIComponent(error.message)}`);
+  const existing = db
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .get(email);
+
+  if (existing) {
+    redirect(`/register?error=${encodeURIComponent("Email sudah terdaftar")}`);
+  }
+
+  const password_hash = hashSync(password, 10);
+  try {
+    db.prepare(
+      "INSERT INTO users (id, email, password_hash, nama_lengkap, role) VALUES (?, ?, ?, ?, ?)",
+    ).run(randomUUID(), email, password_hash, nama_lengkap, "user");
+  } catch {
+    redirect(`/register?error=${encodeURIComponent("Gagal mendaftar, coba lagi")}`);
   }
 
   redirect("/login?registered=1");

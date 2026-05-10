@@ -1,162 +1,170 @@
 import { computeDiagnosis } from "@/lib/diagnosis";
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-export default async function HasilDiagnosaPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+type DiagnosaRow = { id: number; id_user: string };
+type DetailRow = { kode_gejala: string };
+type RelasiRow = { kode_penyakit: string; kode_gejala: string };
+type PenyakitRow = { kode_penyakit: string; nama_penyakit: string; deskripsi: string | null; solusi: string | null; pencegahan: string | null };
+
+export default async function HasilDiagnosaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const diagnosaId = Number(id);
   if (!Number.isFinite(diagnosaId)) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
 
-  const { data: row } = await supabase
-    .from("diagnosa")
-    .select("id, id_user")
-    .eq("id", diagnosaId)
-    .single();
+  const row = db.prepare("SELECT id, id_user FROM diagnosa WHERE id = ?").get(diagnosaId) as DiagnosaRow | undefined;
+  if (!row || row.id_user !== session.userId) notFound();
 
-  if (!row || row.id_user !== user.id) notFound();
+  const details = db.prepare("SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ?").all(diagnosaId) as DetailRow[];
+  const selectedGejala = details.map((d) => d.kode_gejala);
 
-  const { data: details } = await supabase
-    .from("diagnosa_detail")
-    .select("kode_gejala")
-    .eq("id_diagnosa", diagnosaId);
-
-  const selectedGejala = (details ?? []).map((d) => d.kode_gejala);
-
-  const { data: relRows } = await supabase.from("relasi").select("kode_penyakit, kode_gejala");
-  const { data: penyakitRows } = await supabase
-    .from("penyakit")
-    .select("kode_penyakit, nama_penyakit");
-
-  const namaMap = Object.fromEntries(
-    (penyakitRows ?? []).map((p) => [p.kode_penyakit, p.nama_penyakit]),
-  );
-
-  const relasi = (relRows ?? []).map((r) => ({
+  const relRows = db.prepare("SELECT kode_penyakit, kode_gejala FROM relasi").all() as RelasiRow[];
+  const penyakitRows = db.prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit").all() as { kode_penyakit: string; nama_penyakit: string }[];
+  const namaMap = Object.fromEntries(penyakitRows.map((p) => [p.kode_penyakit, p.nama_penyakit]));
+  const relasi = relRows.map((r) => ({
     kode_penyakit: r.kode_penyakit,
     kode_gejala: r.kode_gejala,
     nama_penyakit: namaMap[r.kode_penyakit] ?? r.kode_penyakit,
   }));
 
-  const hasil_diagnosa = computeDiagnosis(selectedGejala, relasi);
-  const penyakit_teratas = hasil_diagnosa[0];
-
-  const { data: penyakit } = penyakit_teratas
-    ? await supabase
-        .from("penyakit")
-        .select("*")
-        .eq("kode_penyakit", penyakit_teratas.kode_penyakit)
-        .single()
-    : { data: null };
+  const hasil = computeDiagnosis(selectedGejala, relasi);
+  const top = hasil[0];
+  const penyakit = top ? (db.prepare("SELECT * FROM penyakit WHERE kode_penyakit = ?").get(top.kode_penyakit) as PenyakitRow | undefined) : null;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow">
-      <div className="p-6">
-        {penyakit_teratas ? (
-          <>
-            <div
-              className={`mb-6 rounded-lg border p-4 ${
-                penyakit_teratas.confidence > 0.5
-                  ? "border-green-200 bg-green-50 text-green-900"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
-              }`}
-            >
-              <h4 className="mb-2 font-bold">Hasil Diagnosa</h4>
-              <p>
-                <strong>Penyakit:</strong> {penyakit_teratas.nama_penyakit}
-                <br />
-                <strong>Tingkat kecocokan:</strong>{" "}
-                {(penyakit_teratas.confidence * 100).toFixed(2)}%
-                <br />
-                <strong>Gejala cocok:</strong> {penyakit_teratas.gejala_cocok} dari{" "}
-                {penyakit_teratas.total_gejala} gejala
-              </p>
-            </div>
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Link href="/user/riwayat" className="btn-ghost btn-sm">
+          <i className="bi bi-arrow-left" />
+        </Link>
+        <div>
+          <h1 className="page-title">Hasil Diagnosa</h1>
+          <p className="text-sm text-slate-400">Diagnosa #{diagnosaId}</p>
+        </div>
+      </div>
 
-            {penyakit && (
-              <div className="mb-6 rounded-lg bg-gray-50 p-4">
-                <h4 className="mb-3 font-bold text-gray-800">Informasi penyakit</h4>
-                <p className="mb-2 text-sm font-medium text-gray-700">Deskripsi</p>
-                <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">
-                  {penyakit.deskripsi}
-                </p>
-                <p className="mb-2 text-sm font-medium text-gray-700">Solusi</p>
-                <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">
-                  {penyakit.solusi}
-                </p>
-                <p className="mb-2 text-sm font-medium text-gray-700">Pencegahan</p>
-                <p className="whitespace-pre-wrap text-sm text-gray-600">
-                  {penyakit.pencegahan}
+      {top ? (
+        <>
+          <div className={`card border-l-4 p-5 ${top.confidence > 0.5 ? "border-l-primary" : "border-l-amber-600"}`}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Kerusakan Terdeteksi</p>
+                <h2 className="text-2xl font-bold text-white">{top.nama_penyakit}</h2>
+                <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <i className="bi bi-check2-circle text-primary" />
+                    {top.gejala_cocok} dari {top.total_gejala} gejala cocok
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Tingkat Kecocokan</p>
+                <p className={`text-4xl font-bold ${top.confidence > 0.5 ? "text-primary" : "text-amber-400"}`}>
+                  {(top.confidence * 100).toFixed(1)}%
                 </p>
               </div>
-            )}
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-full rounded-full ${top.confidence > 0.5 ? "bg-primary" : "bg-amber-600"}`}
+                style={{ width: `${Math.min(100, top.confidence * 100)}%` }}
+              />
+            </div>
+          </div>
 
-            <h4 className="mb-3 font-bold">Kemungkinan penyakit lain</h4>
-            <div className="mb-6 overflow-x-auto">
-              <table className="w-full min-w-[400px] border text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="border p-2 text-left">No</th>
-                    <th className="border p-2 text-left">Penyakit</th>
-                    <th className="border p-2 text-left">Kecocokan</th>
-                    <th className="border p-2 text-left">Gejala cocok</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hasil_diagnosa.slice(1).map((h, idx) => (
-                    <tr key={h.kode_penyakit}>
-                      <td className="border p-2">{idx + 1}</td>
-                      <td className="border p-2">{h.nama_penyakit}</td>
-                      <td className="border p-2">{(h.confidence * 100).toFixed(2)}%</td>
-                      <td className="border p-2">
-                        {h.gejala_cocok} dari {h.total_gejala}
-                      </td>
+          {penyakit && (
+            <div className="card">
+              <div className="card-header">
+                <div className="flex items-center gap-2">
+                  <i className="bi bi-info-circle-fill text-primary" />
+                  <h3 className="section-title">Informasi Kerusakan</h3>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-700/80">
+                {[
+                  { label: "Deskripsi", icon: "bi-file-text", value: penyakit.deskripsi },
+                  { label: "Solusi", icon: "bi-tools", value: penyakit.solusi },
+                  { label: "Pencegahan", icon: "bi-shield-check", value: penyakit.pencegahan },
+                ].map(
+                  (s) =>
+                    s.value && (
+                      <div key={s.label} className="p-5">
+                        <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-200">
+                          <i className={`bi ${s.icon} text-primary`} /> {s.label}
+                        </p>
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{s.value}</p>
+                      </div>
+                    ),
+                )}
+              </div>
+            </div>
+          )}
+
+          {hasil.length > 1 && (
+            <div className="card">
+              <div className="card-header">
+                <div className="flex items-center gap-2">
+                  <i className="bi bi-list-check text-primary" />
+                  <h3 className="section-title">Kemungkinan Lain</h3>
+                </div>
+              </div>
+              <div className="table-wrapper rounded-none border-0">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Kerusakan</th>
+                      <th>Kecocokan</th>
+                      <th>Gejala</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {hasil.slice(1).map((h, i) => (
+                      <tr key={h.kode_penyakit}>
+                        <td className="text-slate-500">{i + 1}</td>
+                        <td className="font-medium text-slate-100">{h.nama_penyakit}</td>
+                        <td>
+                          <span className={`badge ${h.confidence > 0.5 ? "badge-orange" : "badge-blue"}`}>
+                            {(h.confidence * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="text-slate-400">
+                          {h.gejala_cocok}/{h.total_gejala}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+          )}
 
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/user/diagnosa"
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-[#3a5bc7]"
-              >
-                Diagnosa lagi
-              </Link>
-              <Link
-                href="/user/riwayat"
-                className="rounded-lg bg-gray-600 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700"
-              >
-                Lihat riwayat
-              </Link>
-            </div>
-          </>
-        ) : (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
-            <h4 className="font-bold">Tidak ditemukan penyakit yang cocok</h4>
-            <p className="mt-2 text-sm">
-              Gejala yang Anda pilih tidak cocok dengan basis pengetahuan saat ini.
-            </p>
-            <Link
-              href="/user/diagnosa"
-              className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-sm text-white"
-            >
-              Coba lagi
+          <div className="flex flex-wrap gap-3">
+            <Link href="/user/diagnosa" className="btn-primary">
+              <i className="bi bi-search-heart-fill" /> Diagnosa Lagi
+            </Link>
+            <Link href="/user/riwayat" className="btn-secondary">
+              <i className="bi bi-clock-history" /> Lihat Riwayat
             </Link>
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <div className="card p-8 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-950/50 ring-1 ring-red-500/40">
+            <i className="bi bi-x-circle-fill text-3xl text-red-400" />
+          </div>
+          <h3 className="mb-2 font-bold text-white">Tidak Ada Kecocokan</h3>
+          <p className="mb-6 text-sm text-slate-400">Gejala tidak cocok dengan basis pengetahuan. Coba pilih gejala yang lebih spesifik.</p>
+          <Link href="/user/diagnosa" className="btn-primary inline-flex">
+            Coba Lagi
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

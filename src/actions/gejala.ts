@@ -1,64 +1,47 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { db } from "@/lib/db";
+import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 
 async function requireAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data: pr } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (pr?.role !== "admin") redirect("/user/dashboard");
-  return supabase;
+  const session = await getSession();
+  if (!session.userId) redirect("/login");
+  if (session.role !== "admin") redirect("/user/dashboard");
 }
 
 export async function createGejala(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_gejala = String(formData.get("kode_gejala") ?? "").trim();
   const nama_gejala = String(formData.get("nama_gejala") ?? "").trim();
 
-  const { error } = await supabase.from("gejala").insert({ kode_gejala, nama_gejala });
-
-  redirect(
-    error
-      ? `/admin/gejala?error=${encodeURIComponent(error.message)}`
-      : "/admin/gejala?success=1",
-  );
+  try {
+    db.prepare(
+      "INSERT INTO gejala (kode_gejala, nama_gejala) VALUES (?, ?)",
+    ).run(kode_gejala, nama_gejala);
+    redirect("/admin/gejala?success=1");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Gagal menyimpan";
+    redirect(`/admin/gejala?error=${encodeURIComponent(msg)}`);
+  }
 }
 
 export async function updateGejala(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_gejala = String(formData.get("kode_gejala") ?? "").trim();
   const nama_gejala = String(formData.get("nama_gejala") ?? "").trim();
 
-  const { error } = await supabase
-    .from("gejala")
-    .update({ nama_gejala })
-    .eq("kode_gejala", kode_gejala);
-
-  redirect(
-    error
-      ? `/admin/gejala?error=${encodeURIComponent(error.message)}`
-      : "/admin/gejala?success=1",
+  db.prepare("UPDATE gejala SET nama_gejala = ? WHERE kode_gejala = ?").run(
+    nama_gejala,
+    kode_gejala,
   );
+  redirect("/admin/gejala?success=1");
 }
 
 export async function deleteGejala(formData: FormData) {
-  const supabase = await requireAdmin();
+  await requireAdmin();
   const kode_gejala = String(formData.get("kode_gejala") ?? "").trim();
 
-  await supabase.from("relasi").delete().eq("kode_gejala", kode_gejala);
-  const { error } = await supabase.from("gejala").delete().eq("kode_gejala", kode_gejala);
-
-  redirect(
-    error
-      ? `/admin/gejala?error=${encodeURIComponent(error.message)}`
-      : "/admin/gejala?success=1",
-  );
+  db.prepare("DELETE FROM gejala WHERE kode_gejala = ?").run(kode_gejala);
+  redirect("/admin/gejala?success=1");
 }
