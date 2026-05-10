@@ -1,6 +1,6 @@
 "use server";
 
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { hashSync } from "bcryptjs";
 import { randomUUID } from "crypto";
@@ -19,23 +19,24 @@ export async function adminCreateUser(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const nama_lengkap = String(formData.get("nama_lengkap") ?? "").trim();
-  const role = (String(formData.get("role") ?? "user")) as "admin" | "user";
+  const role = String(formData.get("role") ?? "user") as "admin" | "user";
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-  if (existing) {
+  const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+  if (existing.length > 0) {
     redirect(`/admin/pengguna?error=${encodeURIComponent("Email sudah digunakan")}`);
   }
 
   const password_hash = hashSync(password, 10);
   try {
-    db.prepare(
-      "INSERT INTO users (id, email, password_hash, nama_lengkap, role) VALUES (?, ?, ?, ?, ?)",
-    ).run(randomUUID(), email, password_hash, nama_lengkap, role);
-    redirect("/admin/pengguna?success=1");
+    await sql`
+      INSERT INTO users (id, email, password_hash, nama_lengkap, role)
+      VALUES (${randomUUID()}, ${email}, ${password_hash}, ${nama_lengkap}, ${role})
+    `;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Gagal membuat pengguna";
     redirect(`/admin/pengguna?error=${encodeURIComponent(msg)}`);
   }
+  redirect("/admin/pengguna?success=1");
 }
 
 export async function adminUpdateUser(formData: FormData) {
@@ -43,7 +44,7 @@ export async function adminUpdateUser(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const nama_lengkap = String(formData.get("nama_lengkap") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const role = (String(formData.get("role") ?? "user")) as "admin" | "user";
+  const role = String(formData.get("role") ?? "user") as "admin" | "user";
   const password = String(formData.get("password") ?? "");
 
   if (id === session.userId && role !== "admin") {
@@ -52,13 +53,15 @@ export async function adminUpdateUser(formData: FormData) {
 
   if (password.length > 0) {
     const password_hash = hashSync(password, 10);
-    db.prepare(
-      "UPDATE users SET nama_lengkap = ?, email = ?, role = ?, password_hash = ? WHERE id = ?",
-    ).run(nama_lengkap, email, role, password_hash, id);
+    await sql`
+      UPDATE users SET nama_lengkap = ${nama_lengkap}, email = ${email}, role = ${role}, password_hash = ${password_hash}
+      WHERE id = ${id}
+    `;
   } else {
-    db.prepare(
-      "UPDATE users SET nama_lengkap = ?, email = ?, role = ? WHERE id = ?",
-    ).run(nama_lengkap, email, role, id);
+    await sql`
+      UPDATE users SET nama_lengkap = ${nama_lengkap}, email = ${email}, role = ${role}
+      WHERE id = ${id}
+    `;
   }
 
   redirect("/admin/pengguna?success=1");
@@ -72,6 +75,16 @@ export async function adminDeleteUser(formData: FormData) {
     redirect("/admin/pengguna?error=Tidak bisa menghapus akun sendiri");
   }
 
-  db.prepare("DELETE FROM users WHERE id = ?").run(id);
-  redirect("/admin/pengguna?success=1");
+  const prof = await sql`
+    SELECT nama_lengkap, email FROM users WHERE id = ${id}
+  `;
+  const row = prof[0] as { nama_lengkap: string; email: string } | undefined;
+  const label = row ? `${row.nama_lengkap} (${row.email})` : id;
+
+  await sql`DELETE FROM users WHERE id = ${id}`;
+  redirect(
+    `/admin/pengguna?notice=${encodeURIComponent(
+      `Pengguna ${label} berhasil dihapus dari sistem.`,
+    )}`,
+  );
 }

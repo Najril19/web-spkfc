@@ -1,93 +1,124 @@
-import Database from "better-sqlite3";
-import { randomUUID } from "crypto";
-import { hashSync } from "bcryptjs";
-import fs from "fs";
-import path from "path";
-
-const DB_DIR = path.join(process.cwd(), "data");
-const DB_PATH = process.env.DATABASE_PATH ?? path.join(DB_DIR, "spkfc.db");
-
-fs.mkdirSync(DB_DIR, { recursive: true });
+import postgres from "postgres";
 
 declare global {
   // eslint-disable-next-line no-var
-  var __db: Database.Database | undefined;
+  var __mjm_sql: postgres.Sql | undefined;
 }
 
-function openDb(): Database.Database {
-  const database = new Database(DB_PATH);
-  database.pragma("journal_mode = WAL");
-  database.pragma("foreign_keys = ON");
-  return database;
+type Tx = postgres.TransactionSql;
+
+function createSql(): postgres.Sql {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is not set. Add your Neon Postgres connection string (e.g. postgresql://user:pass@host/db?sslmode=require).",
+    );
+  }
+  return postgres(connectionString, {
+    max: 10,
+    idle_timeout: 20,
+    connect_timeout: 10,
+  });
 }
 
-export const db: Database.Database = global.__db ?? openDb();
-if (process.env.NODE_ENV !== "production") {
-  global.__db = db;
+export function getSql(): postgres.Sql {
+  if (!globalThis.__mjm_sql) {
+    globalThis.__mjm_sql = createSql();
+  }
+  return globalThis.__mjm_sql;
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    nama_lengkap TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
-    created_at TEXT DEFAULT (datetime('now'))
-  );
+let migratePromise: Promise<void> | null = null;
 
-  CREATE TABLE IF NOT EXISTS penyakit (
-    kode_penyakit TEXT PRIMARY KEY,
-    nama_penyakit TEXT NOT NULL,
-    deskripsi TEXT,
-    solusi TEXT,
-    pencegahan TEXT
-  );
+/** Tagged template — awaits schema migration on first use. */
+export function sql(strings: TemplateStringsArray, ...params: unknown[]) {
+  return (async () => {
+    await ensureMigrated();
+    // forwarded to postgres tagged template
+    return getSql()(strings, ...(params as []));
+  })();
+}
 
-  CREATE TABLE IF NOT EXISTS gejala (
-    kode_gejala TEXT PRIMARY KEY,
-    nama_gejala TEXT NOT NULL
-  );
+export async function begin<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  await ensureMigrated();
+  return (await getSql().begin(fn)) as T;
+}
 
-  CREATE TABLE IF NOT EXISTS relasi (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kode_penyakit TEXT NOT NULL REFERENCES penyakit(kode_penyakit) ON DELETE CASCADE,
-    kode_gejala TEXT NOT NULL REFERENCES gejala(kode_gejala) ON DELETE CASCADE,
-    UNIQUE(kode_penyakit, kode_gejala)
-  );
+/** For `WHERE col IN ${list}` — use as: `await raw\`... IN ${raw(list)}\`` after `const raw = await getClient()`. */
+export async function getClient(): Promise<postgres.Sql> {
+  await ensureMigrated();
+  return getSql();
+}
 
-  CREATE TABLE IF NOT EXISTS diagnosa (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_user TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    tanggal_diagnosa TEXT DEFAULT (datetime('now')),
-    hasil_penyakit TEXT REFERENCES penyakit(kode_penyakit),
-    confidence REAL
-  );
+export async function ensureMigrated(): Promise<void> {
+  if (!migratePromise) {
+    migratePromise = runMigrate();
+  }
+  await migratePromise;
+}
 
-  CREATE TABLE IF NOT EXISTS diagnosa_detail (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_diagnosa INTEGER NOT NULL REFERENCES diagnosa(id) ON DELETE CASCADE,
-    kode_gejala TEXT NOT NULL REFERENCES gejala(kode_gejala),
-    UNIQUE(id_diagnosa, kode_gejala)
-  );
-`);
+async function runMigrate(): Promise<void> {
+  const raw = getSql();
 
-const gejalaCount = (
-  db.prepare("SELECT COUNT(*) as n FROM gejala").get() as { n: number }
-).n;
+  await raw`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      nama_lengkap TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+      created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
 
-if (gejalaCount === 0) {
-  const insertG = db.prepare(
-    "INSERT OR IGNORE INTO gejala (kode_gejala, nama_gejala) VALUES (?, ?)",
-  );
-  const insertP = db.prepare(
-    "INSERT OR IGNORE INTO penyakit (kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan) VALUES (?, ?, ?, ?, ?)",
-  );
-  const insertR = db.prepare(
-    "INSERT OR IGNORE INTO relasi (kode_penyakit, kode_gejala) VALUES (?, ?)",
-  );
+  await raw`
+    CREATE TABLE IF NOT EXISTS penyakit (
+      kode_penyakit TEXT PRIMARY KEY,
+      nama_penyakit TEXT NOT NULL,
+      deskripsi TEXT,
+      solusi TEXT,
+      pencegahan TEXT
+    )
+  `;
 
-  const seed = db.transaction(() => {
+  await raw`
+    CREATE TABLE IF NOT EXISTS gejala (
+      kode_gejala TEXT PRIMARY KEY,
+      nama_gejala TEXT NOT NULL
+    )
+  `;
+
+  await raw`
+    CREATE TABLE IF NOT EXISTS relasi (
+      id SERIAL PRIMARY KEY,
+      kode_penyakit TEXT NOT NULL REFERENCES penyakit(kode_penyakit) ON DELETE CASCADE,
+      kode_gejala TEXT NOT NULL REFERENCES gejala(kode_gejala) ON DELETE CASCADE,
+      UNIQUE (kode_penyakit, kode_gejala)
+    )
+  `;
+
+  await raw`
+    CREATE TABLE IF NOT EXISTS diagnosa (
+      id SERIAL PRIMARY KEY,
+      id_user TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tanggal_diagnosa TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+      hasil_penyakit TEXT REFERENCES penyakit(kode_penyakit),
+      confidence DOUBLE PRECISION
+    )
+  `;
+
+  await raw`
+    CREATE TABLE IF NOT EXISTS diagnosa_detail (
+      id SERIAL PRIMARY KEY,
+      id_diagnosa INTEGER NOT NULL REFERENCES diagnosa(id) ON DELETE CASCADE,
+      kode_gejala TEXT NOT NULL REFERENCES gejala(kode_gejala),
+      UNIQUE (id_diagnosa, kode_gejala)
+    )
+  `;
+
+  const [{ n }] = await raw`SELECT COUNT(*)::int AS n FROM gejala`;
+
+  if (Number(n) === 0) {
     const gejalaData: [string, string][] = [
       ["GK001", "Mobil Kehilangan Tenaga"],
       ["GK002", "Mobil Sulit Dinyalakan / Distarter"],
@@ -103,7 +134,13 @@ if (gejalaCount === 0) {
       ["GK012", "Asap Putih Keluar Dari Knalpot"],
       ["GK013", "Oli Mesin Cepat Berkurang"],
     ];
-    for (const [k, n] of gejalaData) insertG.run(k, n);
+    for (const [k, nama] of gejalaData) {
+      await raw`
+        INSERT INTO gejala (kode_gejala, nama_gejala)
+        VALUES (${k}, ${nama})
+        ON CONFLICT (kode_gejala) DO NOTHING
+      `;
+    }
 
     const penyakitData: [string, string, string, string, string][] = [
       [
@@ -156,7 +193,14 @@ if (gejalaCount === 0) {
         "Perawatan rutin, Menggunakan aki yang sesuai",
       ],
     ];
-    for (const row of penyakitData) insertP.run(...row);
+    for (const row of penyakitData) {
+      const [kode, nama, desk, sol, pen] = row;
+      await raw`
+        INSERT INTO penyakit (kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan)
+        VALUES (${kode}, ${nama}, ${desk}, ${sol}, ${pen})
+        ON CONFLICT (kode_penyakit) DO NOTHING
+      `;
+    }
 
     const relasiData: [string, string][] = [
       ["JK01", "GK001"],
@@ -186,20 +230,24 @@ if (gejalaCount === 0) {
       ["JK07", "GK001"],
       ["JK07", "GK002"],
     ];
-    for (const [p, g] of relasiData) insertR.run(p, g);
-  });
+    for (const [pk, gk] of relasiData) {
+      await raw`
+        INSERT INTO relasi (kode_penyakit, kode_gejala)
+        VALUES (${pk}, ${gk})
+        ON CONFLICT (kode_penyakit, kode_gejala) DO NOTHING
+      `;
+    }
+  }
 
-  seed();
-}
-
-const adminEmail = process.env.ADMIN_EMAIL ?? "admin@local.id";
-const adminExists = db
-  .prepare("SELECT id FROM users WHERE email = ?")
-  .get(adminEmail);
-
-if (!adminExists) {
-  const pw = hashSync(process.env.ADMIN_PASSWORD ?? "admin123", 10);
-  db.prepare(
-    "INSERT OR IGNORE INTO users (id, email, password_hash, nama_lengkap, role) VALUES (?, ?, ?, ?, ?)",
-  ).run(randomUUID(), adminEmail, pw, "Administrator", "admin");
+  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@local.id";
+  const existing = await raw`SELECT id FROM users WHERE email = ${adminEmail}`;
+  if (existing.length === 0) {
+    const { hashSync } = await import("bcryptjs");
+    const { randomUUID } = await import("crypto");
+    const pw = hashSync(process.env.ADMIN_PASSWORD ?? "admin123", 10);
+    await raw`
+      INSERT INTO users (id, email, password_hash, nama_lengkap, role)
+      VALUES (${randomUUID()}, ${adminEmail}, ${pw}, ${"Administrator"}, ${"admin"})
+    `;
+  }
 }

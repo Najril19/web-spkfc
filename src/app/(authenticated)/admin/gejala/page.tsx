@@ -1,5 +1,8 @@
 import { createGejala, deleteGejala, updateGejala } from "@/actions/gejala";
-import { db } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { flashBanner } from "@/lib/flash-banner";
+import { sql } from "@/lib/db";
 import Link from "next/link";
 
 type GejalaRow = { kode_gejala: string; nama_gejala: string };
@@ -7,10 +10,13 @@ type GejalaRow = { kode_gejala: string; nama_gejala: string };
 export default async function AdminGejalaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string; success?: string; error?: string }>;
+  searchParams: Promise<{ edit?: string; success?: string; notice?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const rows = db.prepare("SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala").all() as GejalaRow[];
+  const flash = flashBanner(sp);
+  const rows = (await sql`
+    SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala
+  `) as unknown as GejalaRow[];
   const editing = sp.edit ? rows.find((r) => r.kode_gejala === sp.edit) : undefined;
 
   return (
@@ -20,12 +26,7 @@ export default async function AdminGejalaPage({
         <p className="page-sub">Kelola daftar gejala untuk sistem diagnosa</p>
       </div>
 
-      {(sp.success || sp.error) && (
-        <div className={sp.success ? "alert-success" : "alert-error"}>
-          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
-          {sp.success ? "Data berhasil disimpan." : sp.error}
-        </div>
-      )}
+      <AutoDismissFlash flash={flash} />
 
       {/* Add form */}
       <div className="card">
@@ -64,7 +65,7 @@ export default async function AdminGejalaPage({
             </div>
           </div>
           <div className="p-5">
-            <form action={updateGejala} className="flex flex-wrap gap-3">
+            <ConfirmSubmitForm action={updateGejala} mode="save" className="flex flex-wrap gap-3">
               <input type="hidden" name="kode_gejala" value={editing.kode_gejala} />
               <div className="flex-1 min-w-[200px]">
                 <label className="form-label">Nama Gejala</label>
@@ -74,7 +75,7 @@ export default async function AdminGejalaPage({
                 <button type="submit" className="btn-primary"><i className="bi bi-check2" /> Update</button>
                 <Link href="/admin/gejala" className="btn-secondary">Batal</Link>
               </div>
-            </form>
+            </ConfirmSubmitForm>
           </div>
         </div>
       )}
@@ -104,12 +105,17 @@ export default async function AdminGejalaPage({
                       <Link href={`/admin/gejala?edit=${encodeURIComponent(r.kode_gejala)}`} className="btn btn-sm btn-warning">
                         <i className="bi bi-pencil-fill" /> Edit
                       </Link>
-                      <form action={deleteGejala} className="inline">
+                      <ConfirmSubmitForm
+                        action={deleteGejala}
+                        mode="delete"
+                        className="inline"
+                        message={`Hapus gejala ${r.kode_gejala} — ${r.nama_gejala}?`}
+                      >
                         <input type="hidden" name="kode_gejala" value={r.kode_gejala} />
                         <button type="submit" className="btn btn-sm btn-danger">
                           <i className="bi bi-trash3-fill" />
                         </button>
-                      </form>
+                      </ConfirmSubmitForm>
                     </div>
                   </td>
                 </tr>

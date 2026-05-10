@@ -25,18 +25,15 @@ const userNav: NavItem[] = [
 
 export function AppSidebar({
   role,
-  nama,
   isOpen,
   onClose,
 }: {
   role: "admin" | "user";
-  nama: string;
   isOpen: boolean;
   onClose: () => void;
 }) {
   const pathname = usePathname();
   const items = role === "admin" ? adminNav : userNav;
-  const roleLabel = role === "admin" ? "Administrator" : "Teknisi";
   const [logoutOpen, setLogoutOpen] = useState(false);
   const logoutFormRef = useRef<HTMLFormElement>(null);
 
@@ -66,7 +63,7 @@ export function AppSidebar({
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-bengkel-dark transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:z-auto ${
+        className={`fixed inset-y-0 left-0 z-40 flex h-dvh max-h-dvh w-64 shrink-0 flex-col bg-bengkel-dark transition-transform duration-300 ease-in-out lg:relative lg:z-auto lg:h-full lg:max-h-none lg:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -90,21 +87,8 @@ export function AppSidebar({
           </button>
         </div>
 
-        {/* Role badge */}
-        <div className="px-4 pt-4">
-          <div className="flex items-center gap-2.5 rounded-lg bg-bengkel-panel px-3 py-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 text-primary">
-              <i className="bi bi-person-fill text-sm" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-white">{nama}</p>
-              <p className="text-[10px] text-slate-400">{roleLabel}</p>
-            </div>
-          </div>
-        </div>
-
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
           <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
             Menu
           </p>

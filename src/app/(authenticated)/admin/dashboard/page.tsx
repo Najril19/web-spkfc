@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { getClient, sql } from "@/lib/db";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
 
@@ -12,31 +12,46 @@ type DiagnosaRow = {
 type UserRow = { id: string; nama_lengkap: string };
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
 
-export default function AdminDashboardPage() {
-  const penyakit = (db.prepare("SELECT COUNT(*) as n FROM penyakit").get() as { n: number }).n;
-  const gejala = (db.prepare("SELECT COUNT(*) as n FROM gejala").get() as { n: number }).n;
-  const users = (db.prepare("SELECT COUNT(*) as n FROM users WHERE role = 'user'").get() as { n: number }).n;
-  const diagnosa = (db.prepare("SELECT COUNT(*) as n FROM diagnosa").get() as { n: number }).n;
+export default async function AdminDashboardPage() {
+  const [{ n: penyakit }] = (await sql`SELECT COUNT(*)::int AS n FROM penyakit`) as unknown as {
+    n: number;
+  }[];
+  const [{ n: gejala }] = (await sql`SELECT COUNT(*)::int AS n FROM gejala`) as unknown as {
+    n: number;
+  }[];
+  const [{ n: users }] = (await sql`
+    SELECT COUNT(*)::int AS n FROM users WHERE role = 'user'
+  `) as unknown as { n: number }[];
+  const [{ n: diagnosa }] = (await sql`SELECT COUNT(*)::int AS n FROM diagnosa`) as unknown as {
+    n: number;
+  }[];
 
-  const recent = db
-    .prepare(
-      "SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user FROM diagnosa ORDER BY tanggal_diagnosa DESC LIMIT 5",
-    )
-    .all() as DiagnosaRow[];
+  const recent = (await sql`
+    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+    FROM diagnosa
+    ORDER BY tanggal_diagnosa DESC
+    LIMIT 5
+  `) as unknown as DiagnosaRow[];
 
   const userIds = [...new Set(recent.map((r) => r.id_user))];
   const namaUser: Record<string, string> = {};
   if (userIds.length) {
-    const ph = userIds.map(() => "?").join(",");
-    const profs = db.prepare(`SELECT id, nama_lengkap FROM users WHERE id IN (${ph})`).all(...userIds) as UserRow[];
+    const c = await getClient();
+    const profs = (await c`
+      SELECT id, nama_lengkap FROM users
+      WHERE id IN ${c(userIds)}
+    `) as unknown as UserRow[];
     for (const p of profs) namaUser[p.id] = p.nama_lengkap;
   }
 
   const kodes = [...new Set(recent.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
   const namaPenyakit: Record<string, string> = {};
   if (kodes.length) {
-    const ph = kodes.map(() => "?").join(",");
-    const pRows = db.prepare(`SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`).all(...kodes) as PenyakitRow[];
+    const c = await getClient();
+    const pRows = (await c`
+      SELECT kode_penyakit, nama_penyakit FROM penyakit
+      WHERE kode_penyakit IN ${c(kodes)}
+    `) as unknown as PenyakitRow[];
     for (const p of pRows) namaPenyakit[p.kode_penyakit] = p.nama_penyakit;
   }
 
@@ -106,7 +121,7 @@ export default function AdminDashboardPage() {
                 return (
                   <tr key={r.id}>
                     <td className="font-mono text-xs text-slate-500">{i + 1}</td>
-                    <td>{formatDateId(r.tanggal_diagnosa)}</td>
+                    <td>{formatDateId(String(r.tanggal_diagnosa))}</td>
                     <td className="font-medium">{namaUser[r.id_user] ?? "—"}</td>
                     <td>
                       {r.hasil_penyakit ? (

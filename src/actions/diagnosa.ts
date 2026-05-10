@@ -1,6 +1,7 @@
 "use server";
 
-import { db } from "@/lib/db";
+import { begin, sql } from "@/lib/db";
+import { formatDateId } from "@/lib/format";
 import { getSession } from "@/lib/session";
 import { computeDiagnosis } from "@/lib/diagnosis";
 import { redirect } from "next/navigation";
@@ -18,12 +19,12 @@ export async function runDiagnosa(formData: FormData) {
     redirect("/user/diagnosa?error=Pilih minimal satu gejala.");
   }
 
-  const relRows = db
-    .prepare("SELECT kode_penyakit, kode_gejala FROM relasi")
-    .all() as RelasiRow[];
-  const penyakitRows = db
-    .prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit")
-    .all() as PenyakitRow[];
+  const relRows = (await sql`
+    SELECT kode_penyakit, kode_gejala FROM relasi
+  `) as unknown as RelasiRow[];
+  const penyakitRows = (await sql`
+    SELECT kode_penyakit, nama_penyakit FROM penyakit
+  `) as unknown as PenyakitRow[];
 
   const namaMap = Object.fromEntries(
     penyakitRows.map((p) => [p.kode_penyakit, p.nama_penyakit]),
@@ -40,21 +41,22 @@ export async function runDiagnosa(formData: FormData) {
   const hasil_penyakit = top?.kode_penyakit ?? null;
   const confidence = top?.confidence ?? 0;
 
-  const inserted = db
-    .prepare(
-      "INSERT INTO diagnosa (id_user, hasil_penyakit, confidence) VALUES (?, ?, ?)",
-    )
-    .run(session.userId, hasil_penyakit, confidence);
-
-  const diagnosaId = inserted.lastInsertRowid as number;
-
-  const insertDetail = db.prepare(
-    "INSERT OR IGNORE INTO diagnosa_detail (id_diagnosa, kode_gejala) VALUES (?, ?)",
-  );
-  const insertMany = db.transaction((kodes: string[]) => {
-    for (const k of kodes) insertDetail.run(diagnosaId, k);
+  const diagnosaId = await begin(async (tx) => {
+    const inserted = await tx`
+      INSERT INTO diagnosa (id_user, hasil_penyakit, confidence)
+      VALUES (${session.userId}, ${hasil_penyakit}, ${confidence})
+      RETURNING id
+    `;
+    const id = Number(inserted[0]?.id);
+    for (const k of selectedGejala) {
+      await tx`
+        INSERT INTO diagnosa_detail (id_diagnosa, kode_gejala)
+        VALUES (${id}, ${k})
+        ON CONFLICT (id_diagnosa, kode_gejala) DO NOTHING
+      `;
+    }
+    return id;
   });
-  insertMany(selectedGejala);
 
   redirect(`/user/hasil-diagnosa/${diagnosaId}`);
 }
@@ -66,11 +68,19 @@ export async function deleteDiagnosaUser(formData: FormData) {
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  db.prepare(
-    "DELETE FROM diagnosa WHERE id = ? AND id_user = ?",
-  ).run(id, session.userId);
+  const before = await sql`
+    SELECT tanggal_diagnosa FROM diagnosa WHERE id = ${id} AND id_user = ${session.userId}
+  `;
+  const t = before[0] as { tanggal_diagnosa: string } | undefined;
 
-  redirect("/user/riwayat");
+  await sql`DELETE FROM diagnosa WHERE id = ${id} AND id_user = ${session.userId}`;
+
+  const when = t ? formatDateId(String(t.tanggal_diagnosa)) : `#${id}`;
+  redirect(
+    `/user/riwayat?notice=${encodeURIComponent(
+      `Riwayat diagnosa tanggal ${when} berhasil dihapus.`,
+    )}`,
+  );
 }
 
 export async function deleteDiagnosaAdmin(formData: FormData) {
@@ -81,7 +91,17 @@ export async function deleteDiagnosaAdmin(formData: FormData) {
   if (!session.userId) redirect("/login");
   if (session.role !== "admin") redirect("/user/dashboard");
 
-  db.prepare("DELETE FROM diagnosa WHERE id = ?").run(id);
+  const before = await sql`
+    SELECT tanggal_diagnosa FROM diagnosa WHERE id = ${id}
+  `;
+  const t = before[0] as { tanggal_diagnosa: string } | undefined;
 
-  redirect("/admin/riwayat");
+  await sql`DELETE FROM diagnosa WHERE id = ${id}`;
+
+  const when = t ? formatDateId(String(t.tanggal_diagnosa)) : `#${id}`;
+  redirect(
+    `/admin/riwayat?notice=${encodeURIComponent(
+      `Diagnosa #${id} (${when}) berhasil dihapus dari riwayat.`,
+    )}`,
+  );
 }

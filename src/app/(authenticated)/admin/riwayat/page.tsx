@@ -1,27 +1,51 @@
-import { db } from "@/lib/db";
+import { getClient, sql } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { flashBanner } from "@/lib/flash-banner";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
 
-type DiagnosaRow = { id: number; tanggal_diagnosa: string; confidence: number | null; hasil_penyakit: string | null; id_user: string };
+type DiagnosaRow = {
+  id: number;
+  tanggal_diagnosa: string;
+  confidence: number | null;
+  hasil_penyakit: string | null;
+  id_user: string;
+};
 type UserRow = { id: string; nama_lengkap: string };
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
 
-export default function AdminRiwayatPage() {
-  const rows = db.prepare("SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user FROM diagnosa ORDER BY tanggal_diagnosa DESC").all() as DiagnosaRow[];
+export default async function AdminRiwayatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string; notice?: string; error?: string }>;
+}) {
+  const sp = await searchParams;
+  const flash = flashBanner(sp, "Riwayat diagnosa berhasil dihapus.");
+  const rows = (await sql`
+    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+    FROM diagnosa
+    ORDER BY tanggal_diagnosa DESC
+  `) as unknown as DiagnosaRow[];
 
   const userIds = [...new Set(rows.map((r) => r.id_user))];
   const namaUser: Record<string, string> = {};
   if (userIds.length) {
-    const ph = userIds.map(() => "?").join(",");
-    const profs = db.prepare(`SELECT id, nama_lengkap FROM users WHERE id IN (${ph})`).all(...userIds) as UserRow[];
+    const c = await getClient();
+    const profs = (await c`
+      SELECT id, nama_lengkap FROM users
+      WHERE id IN ${c(userIds)}
+    `) as unknown as UserRow[];
     for (const p of profs) namaUser[p.id] = p.nama_lengkap;
   }
 
   const kodes = [...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
   const namaPenyakit: Record<string, string> = {};
   if (kodes.length) {
-    const ph = kodes.map(() => "?").join(",");
-    const pr = db.prepare(`SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`).all(...kodes) as PenyakitRow[];
+    const c = await getClient();
+    const pr = (await c`
+      SELECT kode_penyakit, nama_penyakit FROM penyakit
+      WHERE kode_penyakit IN ${c(kodes)}
+    `) as unknown as PenyakitRow[];
     for (const p of pr) namaPenyakit[p.kode_penyakit] = p.nama_penyakit;
   }
 
@@ -31,6 +55,8 @@ export default function AdminRiwayatPage() {
         <h1 className="page-title">Riwayat Diagnosa</h1>
         <p className="page-sub">Semua riwayat diagnosa dari seluruh pengguna</p>
       </div>
+
+      <AutoDismissFlash flash={flash} />
 
       <div className="card">
         <div className="card-header">
@@ -66,7 +92,7 @@ export default function AdminRiwayatPage() {
                 return (
                   <tr key={r.id}>
                     <td className="font-mono text-xs text-slate-400">{i + 1}</td>
-                    <td>{formatDateId(r.tanggal_diagnosa)}</td>
+                    <td>{formatDateId(String(r.tanggal_diagnosa))}</td>
                     <td className="font-medium">{namaUser[r.id_user] ?? "—"}</td>
                     <td>
                       {r.hasil_penyakit ? (

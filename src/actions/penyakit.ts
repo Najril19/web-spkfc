@@ -1,6 +1,7 @@
 "use server";
 
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { insertErrorMessage } from "@/lib/pg-errors";
 import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 
@@ -19,14 +20,18 @@ export async function createPenyakit(formData: FormData) {
   const pencegahan = String(formData.get("pencegahan") ?? "");
 
   try {
-    db.prepare(
-      "INSERT INTO penyakit (kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan) VALUES (?, ?, ?, ?, ?)",
-    ).run(kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan);
-    redirect("/admin/penyakit?success=1");
+    await sql`
+      INSERT INTO penyakit (kode_penyakit, nama_penyakit, deskripsi, solusi, pencegahan)
+      VALUES (${kode_penyakit}, ${nama_penyakit}, ${deskripsi}, ${solusi}, ${pencegahan})
+    `;
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Gagal menyimpan";
+    const msg = insertErrorMessage(
+      e,
+      "Kode kerusakan sudah ada. Gunakan kode lain atau edit data yang sudah tersimpan.",
+    );
     redirect(`/admin/penyakit?error=${encodeURIComponent(msg)}`);
   }
+  redirect("/admin/penyakit?success=1");
 }
 
 export async function updatePenyakit(formData: FormData) {
@@ -37,9 +42,10 @@ export async function updatePenyakit(formData: FormData) {
   const solusi = String(formData.get("solusi") ?? "");
   const pencegahan = String(formData.get("pencegahan") ?? "");
 
-  db.prepare(
-    "UPDATE penyakit SET nama_penyakit = ?, deskripsi = ?, solusi = ?, pencegahan = ? WHERE kode_penyakit = ?",
-  ).run(nama_penyakit, deskripsi, solusi, pencegahan, kode_penyakit);
+  await sql`
+    UPDATE penyakit SET nama_penyakit = ${nama_penyakit}, deskripsi = ${deskripsi}, solusi = ${solusi}, pencegahan = ${pencegahan}
+    WHERE kode_penyakit = ${kode_penyakit}
+  `;
   redirect("/admin/penyakit?success=1");
 }
 
@@ -47,6 +53,10 @@ export async function deletePenyakit(formData: FormData) {
   await requireAdmin();
   const kode_penyakit = String(formData.get("kode_penyakit") ?? "").trim();
 
-  db.prepare("DELETE FROM penyakit WHERE kode_penyakit = ?").run(kode_penyakit);
-  redirect("/admin/penyakit?success=1");
+  await sql`DELETE FROM penyakit WHERE kode_penyakit = ${kode_penyakit}`;
+  redirect(
+    `/admin/penyakit?notice=${encodeURIComponent(
+      `Data kerusakan ${kode_penyakit} berhasil dihapus.`,
+    )}`,
+  );
 }

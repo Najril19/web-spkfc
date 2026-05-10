@@ -1,6 +1,7 @@
 "use server";
 
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
+import { insertErrorMessage } from "@/lib/pg-errors";
 import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 
@@ -16,14 +17,18 @@ export async function createGejala(formData: FormData) {
   const nama_gejala = String(formData.get("nama_gejala") ?? "").trim();
 
   try {
-    db.prepare(
-      "INSERT INTO gejala (kode_gejala, nama_gejala) VALUES (?, ?)",
-    ).run(kode_gejala, nama_gejala);
-    redirect("/admin/gejala?success=1");
+    await sql`
+      INSERT INTO gejala (kode_gejala, nama_gejala)
+      VALUES (${kode_gejala}, ${nama_gejala})
+    `;
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Gagal menyimpan";
+    const msg = insertErrorMessage(
+      e,
+      "Kode gejala sudah ada di database. Gunakan kode lain atau edit gejala yang sudah tersimpan.",
+    );
     redirect(`/admin/gejala?error=${encodeURIComponent(msg)}`);
   }
+  redirect("/admin/gejala?success=1");
 }
 
 export async function updateGejala(formData: FormData) {
@@ -31,10 +36,9 @@ export async function updateGejala(formData: FormData) {
   const kode_gejala = String(formData.get("kode_gejala") ?? "").trim();
   const nama_gejala = String(formData.get("nama_gejala") ?? "").trim();
 
-  db.prepare("UPDATE gejala SET nama_gejala = ? WHERE kode_gejala = ?").run(
-    nama_gejala,
-    kode_gejala,
-  );
+  await sql`
+    UPDATE gejala SET nama_gejala = ${nama_gejala} WHERE kode_gejala = ${kode_gejala}
+  `;
   redirect("/admin/gejala?success=1");
 }
 
@@ -42,6 +46,10 @@ export async function deleteGejala(formData: FormData) {
   await requireAdmin();
   const kode_gejala = String(formData.get("kode_gejala") ?? "").trim();
 
-  db.prepare("DELETE FROM gejala WHERE kode_gejala = ?").run(kode_gejala);
-  redirect("/admin/gejala?success=1");
+  await sql`DELETE FROM gejala WHERE kode_gejala = ${kode_gejala}`;
+  redirect(
+    `/admin/gejala?notice=${encodeURIComponent(
+      `Gejala ${kode_gejala} berhasil dihapus dari daftar.`,
+    )}`,
+  );
 }

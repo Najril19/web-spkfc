@@ -1,5 +1,8 @@
 import { updateProfile } from "@/actions/profile";
-import { db } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { flashBanner } from "@/lib/flash-banner";
+import { sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import { redirect } from "next/navigation";
@@ -9,13 +12,17 @@ type UserRow = { id: string; email: string; nama_lengkap: string; role: string; 
 export default async function ProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ success?: string; error?: string }>;
+  searchParams: Promise<{ success?: string; notice?: string; error?: string }>;
 }) {
   const sp = await searchParams;
+  const flash = flashBanner(sp, "Profil berhasil diperbarui.");
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const profile = db.prepare("SELECT id, email, nama_lengkap, role, created_at FROM users WHERE id = ?").get(session.userId) as UserRow | undefined;
+  const profRows = await sql`
+    SELECT id, email, nama_lengkap, role, created_at FROM users WHERE id = ${session.userId}
+  `;
+  const profile = profRows[0] as UserRow | undefined;
 
   return (
     <div className="space-y-6">
@@ -54,20 +61,9 @@ export default async function ProfilePage({
               </div>
             </div>
             <div className="p-5">
-              {sp.success && (
-                <div className="alert-success mb-4">
-                  <i className="bi bi-check-circle-fill text-green-600" />
-                  Profil berhasil diperbarui.
-                </div>
-              )}
-              {sp.error && (
-                <div className="alert-error mb-4">
-                  <i className="bi bi-exclamation-triangle-fill text-red-500" />
-                  {sp.error}
-                </div>
-              )}
+              <AutoDismissFlash flash={flash} className="mb-4" />
 
-              <form action={updateProfile} className="space-y-4">
+              <ConfirmSubmitForm action={updateProfile} mode="save" className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="form-label">Email (login)</label>
@@ -99,7 +95,7 @@ export default async function ProfilePage({
                 <button type="submit" className="btn-primary">
                   <i className="bi bi-check2-circle" /> Simpan Perubahan
                 </button>
-              </form>
+              </ConfirmSubmitForm>
             </div>
           </div>
         </div>

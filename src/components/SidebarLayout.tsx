@@ -14,18 +14,12 @@ export function SidebarLayout({
   children: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const dashHref = role === "admin" ? "/admin/dashboard" : "/user/dashboard";
 
   return (
-    <div className="flex min-h-screen w-full bg-[#0b0f18]">
-      <AppSidebar
-        role={role}
-        nama={nama}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-[#0b0f18]">
+      <AppSidebar role={role} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex min-h-screen flex-1 flex-col overflow-hidden border-l border-slate-800/80 bg-[#0b0f18]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-l border-slate-800/80 bg-[#0b0f18]">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-950/90 px-4 shadow-[inset_0_-1px_0_0_rgba(249,115,22,0.06)] backdrop-blur-sm">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -34,14 +28,6 @@ export function SidebarLayout({
           >
             <i className="bi bi-list text-xl" />
           </button>
-
-          <Link
-            href={dashHref}
-            className="flex items-center gap-2 text-sm font-medium text-slate-400 hover:text-primary"
-          >
-            <i className="bi bi-house-fill text-base text-primary" />
-            <span className="hidden sm:inline">Beranda</span>
-          </Link>
 
           <div className="flex-1" />
 
@@ -61,7 +47,9 @@ export function SidebarLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          {children}
+        </main>
 
         <footer className="border-t border-slate-800 bg-slate-950/90 px-6 py-3 text-center text-xs text-slate-500">
           MJMScan+ &copy; {new Date().getFullYear()} — Sistem Pakar Diagnosa Kerusakan Mobil Toyota Avanza

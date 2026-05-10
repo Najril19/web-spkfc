@@ -1,5 +1,8 @@
 import { adminCreateUser as createPengguna, adminDeleteUser as deletePengguna, adminUpdateUser as updatePengguna } from "@/actions/pengguna";
-import { db } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { flashBanner } from "@/lib/flash-banner";
+import { sql } from "@/lib/db";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
 
@@ -8,10 +11,13 @@ type UserRow = { id: string; email: string; nama_lengkap: string; role: string; 
 export default async function AdminPenggunaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string; success?: string; error?: string }>;
+  searchParams: Promise<{ edit?: string; success?: string; notice?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const users = db.prepare("SELECT id, email, nama_lengkap, role, created_at FROM users ORDER BY created_at DESC").all() as UserRow[];
+  const flash = flashBanner(sp);
+  const users = (await sql`
+    SELECT id, email, nama_lengkap, role, created_at FROM users ORDER BY created_at DESC
+  `) as unknown as UserRow[];
   const editing = sp.edit ? users.find((u) => u.id === sp.edit) : undefined;
 
   return (
@@ -21,12 +27,7 @@ export default async function AdminPenggunaPage({
         <p className="page-sub">Kelola akun pengguna sistem</p>
       </div>
 
-      {(sp.success || sp.error) && (
-        <div className={sp.success ? "alert-success" : "alert-error"}>
-          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
-          {sp.success ? "Data berhasil disimpan." : sp.error}
-        </div>
-      )}
+      <AutoDismissFlash flash={flash} />
 
       {/* Add form */}
       <div className="card">
@@ -76,7 +77,7 @@ export default async function AdminPenggunaPage({
             </div>
           </div>
           <div className="p-5">
-            <form action={updatePengguna} className="grid gap-4 sm:grid-cols-2">
+            <ConfirmSubmitForm action={updatePengguna} mode="save" className="grid gap-4 sm:grid-cols-2">
               <input type="hidden" name="id" value={editing.id} />
               <div>
                 <label className="form-label">Nama Lengkap</label>
@@ -101,7 +102,7 @@ export default async function AdminPenggunaPage({
                 <button type="submit" className="btn-primary"><i className="bi bi-check2" /> Update</button>
                 <Link href="/admin/pengguna" className="btn-secondary">Batal</Link>
               </div>
-            </form>
+            </ConfirmSubmitForm>
           </div>
         </div>
       )}
@@ -144,12 +145,17 @@ export default async function AdminPenggunaPage({
                       <Link href={`/admin/pengguna?edit=${u.id}`} className="btn btn-sm btn-warning">
                         <i className="bi bi-pencil-fill" /> Edit
                       </Link>
-                      <form action={deletePengguna} className="inline">
+                      <ConfirmSubmitForm
+                        action={deletePengguna}
+                        mode="delete"
+                        className="inline"
+                        message={`Hapus pengguna ${u.nama_lengkap} (${u.email})?`}
+                      >
                         <input type="hidden" name="id" value={u.id} />
                         <button type="submit" className="btn btn-sm btn-danger">
                           <i className="bi bi-trash3-fill" />
                         </button>
-                      </form>
+                      </ConfirmSubmitForm>
                     </div>
                   </td>
                 </tr>

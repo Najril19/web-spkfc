@@ -1,12 +1,18 @@
 import { deleteDiagnosaAdmin } from "@/actions/diagnosa";
-import { db } from "@/lib/db";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { getClient, sql } from "@/lib/db";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 type DiagnosaRow = { id: number; id_user: string; tanggal_diagnosa: string; hasil_penyakit: string | null; confidence: number | null };
 type UserRow = { nama_lengkap: string; email: string };
-type PenyakitRow = { nama_penyakit: string; deskripsi: string | null; solusi: string | null };
+type PenyakitRow = {
+  kode_penyakit: string;
+  nama_penyakit: string;
+  deskripsi: string | null;
+  solusi: string | null;
+};
 type DetailRow = { kode_gejala: string };
 type GejalaRow = { kode_gejala: string; nama_gejala: string };
 
@@ -15,18 +21,30 @@ export default async function AdminDiagnosaDetailPage({ params }: { params: Prom
   const did = Number(id);
   if (!Number.isFinite(did)) notFound();
 
-  const d = db.prepare("SELECT * FROM diagnosa WHERE id = ?").get(did) as DiagnosaRow | undefined;
+  const dRows = await sql`SELECT * FROM diagnosa WHERE id = ${did}`;
+  const d = dRows[0] as DiagnosaRow | undefined;
   if (!d) notFound();
 
-  const userProf = db.prepare("SELECT nama_lengkap, email FROM users WHERE id = ?").get(d.id_user) as UserRow | undefined;
-  const p = d.hasil_penyakit ? (db.prepare("SELECT * FROM penyakit WHERE kode_penyakit = ?").get(d.hasil_penyakit) as PenyakitRow | undefined) : null;
-  const details = db.prepare("SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ?").all(did) as DetailRow[];
+  const uRows = await sql`SELECT nama_lengkap, email FROM users WHERE id = ${d.id_user}`;
+  const userProf = uRows[0] as UserRow | undefined;
+
+  const pRows = d.hasil_penyakit
+    ? await sql`SELECT * FROM penyakit WHERE kode_penyakit = ${d.hasil_penyakit}`
+    : [];
+  const p = pRows[0] as PenyakitRow | undefined;
+
+  const details = (await sql`
+    SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ${did}
+  `) as unknown as DetailRow[];
 
   const kodeList = details.map((x) => x.kode_gejala);
   const namaGejala: Record<string, string> = {};
   if (kodeList.length) {
-    const ph = kodeList.map(() => "?").join(",");
-    const gr = db.prepare(`SELECT kode_gejala, nama_gejala FROM gejala WHERE kode_gejala IN (${ph})`).all(...kodeList) as GejalaRow[];
+    const c = await getClient();
+    const gr = (await c`
+      SELECT kode_gejala, nama_gejala FROM gejala
+      WHERE kode_gejala IN ${c(kodeList)}
+    `) as unknown as GejalaRow[];
     for (const g of gr) namaGejala[g.kode_gejala] = g.nama_gejala;
   }
 
@@ -40,7 +58,7 @@ export default async function AdminDiagnosaDetailPage({ params }: { params: Prom
         </Link>
         <div>
           <h1 className="page-title">Detail Diagnosa #{d.id}</h1>
-          <p className="text-sm text-slate-400">{formatDateId(d.tanggal_diagnosa)}</p>
+          <p className="text-sm text-slate-400">{formatDateId(String(d.tanggal_diagnosa))}</p>
         </div>
       </div>
 
@@ -131,12 +149,16 @@ export default async function AdminDiagnosaDetailPage({ params }: { params: Prom
               <Link href="/admin/riwayat" className="btn-secondary justify-center">
                 <i className="bi bi-arrow-left" /> Kembali
               </Link>
-              <form action={deleteDiagnosaAdmin}>
+              <ConfirmSubmitForm
+                action={deleteDiagnosaAdmin}
+                mode="delete"
+                message={`Hapus diagnosa #${d.id} dari riwayat?`}
+              >
                 <input type="hidden" name="id" value={d.id} />
                 <button type="submit" className="btn-danger w-full justify-center">
                   <i className="bi bi-trash3-fill" /> Hapus Diagnosa
                 </button>
-              </form>
+              </ConfirmSubmitForm>
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { deleteDiagnosaUser } from "@/actions/diagnosa";
-import { db } from "@/lib/db";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { getClient, sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
@@ -18,19 +19,28 @@ export default async function UserRiwayatDetailPage({ params }: { params: Promis
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const d = db.prepare("SELECT id, id_user, tanggal_diagnosa, hasil_penyakit, confidence FROM diagnosa WHERE id = ?").get(did) as DiagnosaRow | undefined;
+  const dRows = await sql`
+    SELECT id, id_user, tanggal_diagnosa, hasil_penyakit, confidence FROM diagnosa WHERE id = ${did}
+  `;
+  const d = dRows[0] as DiagnosaRow | undefined;
   if (!d || d.id_user !== session.userId) notFound();
 
-  const p = d.hasil_penyakit
-    ? (db.prepare("SELECT * FROM penyakit WHERE kode_penyakit = ?").get(d.hasil_penyakit) as PenyakitRow | undefined)
-    : null;
+  const pRows = d.hasil_penyakit
+    ? await sql`SELECT * FROM penyakit WHERE kode_penyakit = ${d.hasil_penyakit}`
+    : [];
+  const p = pRows[0] as PenyakitRow | undefined;
 
-  const details = db.prepare("SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ?").all(did) as DetailRow[];
+  const details = (await sql`
+    SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ${did}
+  `) as unknown as DetailRow[];
   const kodeList = details.map((x) => x.kode_gejala);
   const namaGejala: Record<string, string> = {};
   if (kodeList.length) {
-    const ph = kodeList.map(() => "?").join(",");
-    const gr = db.prepare(`SELECT kode_gejala, nama_gejala FROM gejala WHERE kode_gejala IN (${ph})`).all(...kodeList) as GejalaRow[];
+    const c = await getClient();
+    const gr = (await c`
+      SELECT kode_gejala, nama_gejala FROM gejala
+      WHERE kode_gejala IN ${c(kodeList)}
+    `) as unknown as GejalaRow[];
     for (const g of gr) namaGejala[g.kode_gejala] = g.nama_gejala;
   }
 
@@ -44,7 +54,7 @@ export default async function UserRiwayatDetailPage({ params }: { params: Promis
         </Link>
         <div>
           <h1 className="page-title">Detail Diagnosa #{d.id}</h1>
-          <p className="text-sm text-slate-400">{formatDateId(d.tanggal_diagnosa)}</p>
+          <p className="text-sm text-slate-400">{formatDateId(String(d.tanggal_diagnosa))}</p>
         </div>
       </div>
 
@@ -131,12 +141,16 @@ export default async function UserRiwayatDetailPage({ params }: { params: Promis
               <Link href="/user/diagnosa" className="btn-secondary justify-center">
                 <i className="bi bi-search-heart-fill" /> Diagnosa Baru
               </Link>
-              <form action={deleteDiagnosaUser}>
+              <ConfirmSubmitForm
+                action={deleteDiagnosaUser}
+                mode="delete"
+                message={`Hapus riwayat diagnosa #${d.id}?`}
+              >
                 <input type="hidden" name="id" value={d.id} />
                 <button type="submit" className="btn-danger w-full justify-center">
                   <i className="bi bi-trash3-fill" /> Hapus Riwayat
                 </button>
-              </form>
+              </ConfirmSubmitForm>
             </div>
           </div>
         </div>

@@ -1,5 +1,8 @@
 import { createRelasi, deleteRelasi } from "@/actions/relasi";
-import { db } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { flashBanner } from "@/lib/flash-banner";
+import { sql } from "@/lib/db";
 
 type RelasiRow = { id: number; kode_penyakit: string; kode_gejala: string };
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
@@ -8,12 +11,19 @@ type GejalaRow = { kode_gejala: string; nama_gejala: string };
 export default async function AdminRelasiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ success?: string; error?: string }>;
+  searchParams: Promise<{ success?: string; notice?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const relasi = db.prepare("SELECT id, kode_penyakit, kode_gejala FROM relasi ORDER BY id").all() as RelasiRow[];
-  const penyakit = db.prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit ORDER BY kode_penyakit").all() as PenyakitRow[];
-  const gejala = db.prepare("SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala").all() as GejalaRow[];
+  const flash = flashBanner(sp);
+  const relasi = (await sql`
+    SELECT id, kode_penyakit, kode_gejala FROM relasi ORDER BY id
+  `) as unknown as RelasiRow[];
+  const penyakit = (await sql`
+    SELECT kode_penyakit, nama_penyakit FROM penyakit ORDER BY kode_penyakit
+  `) as unknown as PenyakitRow[];
+  const gejala = (await sql`
+    SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala
+  `) as unknown as GejalaRow[];
   const pn = Object.fromEntries(penyakit.map((p) => [p.kode_penyakit, p.nama_penyakit]));
   const gn = Object.fromEntries(gejala.map((g) => [g.kode_gejala, g.nama_gejala]));
 
@@ -24,12 +34,7 @@ export default async function AdminRelasiPage({
         <p className="page-sub">Hubungan antara kerusakan dan gejala</p>
       </div>
 
-      {(sp.success || sp.error) && (
-        <div className={sp.success ? "alert-success" : "alert-error"}>
-          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
-          {sp.success ? "Data berhasil disimpan." : sp.error}
-        </div>
-      )}
+      <AutoDismissFlash flash={flash} />
 
       {/* Add form */}
       <div className="card">
@@ -97,12 +102,16 @@ export default async function AdminRelasiPage({
                     <span className="text-slate-400">{gn[r.kode_gejala] ?? ""}</span>
                   </td>
                   <td>
-                    <form action={deleteRelasi}>
+                    <ConfirmSubmitForm
+                      action={deleteRelasi}
+                      mode="delete"
+                      message={`Hapus relasi ${r.kode_penyakit} ↔ ${r.kode_gejala}?`}
+                    >
                       <input type="hidden" name="id" value={r.id} />
                       <button type="submit" className="btn btn-sm btn-danger">
                         <i className="bi bi-trash3-fill" />
                       </button>
-                    </form>
+                    </ConfirmSubmitForm>
                   </td>
                 </tr>
               ))}

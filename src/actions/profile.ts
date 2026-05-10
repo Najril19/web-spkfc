@@ -1,6 +1,6 @@
 "use server";
 
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { compareSync, hashSync } from "bcryptjs";
 import { redirect } from "next/navigation";
@@ -22,9 +22,8 @@ export async function updateProfile(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const current_password = String(formData.get("current_password") ?? "");
 
-  const user = db
-    .prepare("SELECT * FROM users WHERE id = ?")
-    .get(session.userId) as UserRow | undefined;
+  const users = await sql`SELECT * FROM users WHERE id = ${session.userId}`;
+  const user = users[0] as UserRow | undefined;
   if (!user) redirect("/login");
 
   if (password.length > 0) {
@@ -32,13 +31,15 @@ export async function updateProfile(formData: FormData) {
       redirect(`/profile?error=${encodeURIComponent("Password lama salah")}`);
     }
     const password_hash = hashSync(password, 10);
-    db.prepare(
-      "UPDATE users SET nama_lengkap = ?, email = ?, password_hash = ? WHERE id = ?",
-    ).run(nama_lengkap, email, password_hash, session.userId);
+    await sql`
+      UPDATE users SET nama_lengkap = ${nama_lengkap}, email = ${email}, password_hash = ${password_hash}
+      WHERE id = ${session.userId}
+    `;
   } else {
-    db.prepare(
-      "UPDATE users SET nama_lengkap = ?, email = ? WHERE id = ?",
-    ).run(nama_lengkap, email, session.userId);
+    await sql`
+      UPDATE users SET nama_lengkap = ${nama_lengkap}, email = ${email}
+      WHERE id = ${session.userId}
+    `;
   }
 
   session.nama_lengkap = nama_lengkap;

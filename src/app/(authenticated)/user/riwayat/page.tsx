@@ -1,4 +1,6 @@
-import { db } from "@/lib/db";
+import { getClient, sql } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { flashBanner } from "@/lib/flash-banner";
 import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
@@ -7,19 +9,31 @@ import { redirect } from "next/navigation";
 type DiagnosaRow = { id: number; tanggal_diagnosa: string; confidence: number | null; hasil_penyakit: string | null };
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
 
-export default async function UserRiwayatPage() {
+export default async function UserRiwayatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string; notice?: string; error?: string }>;
+}) {
+  const sp = await searchParams;
+  const flash = flashBanner(sp, "Riwayat diagnosa berhasil dihapus.");
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const rows = db
-    .prepare("SELECT id, tanggal_diagnosa, confidence, hasil_penyakit FROM diagnosa WHERE id_user = ? ORDER BY tanggal_diagnosa DESC")
-    .all(session.userId) as DiagnosaRow[];
+  const rows = (await sql`
+    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit
+    FROM diagnosa
+    WHERE id_user = ${session.userId}
+    ORDER BY tanggal_diagnosa DESC
+  `) as unknown as DiagnosaRow[];
 
   const kodes = [...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
   const namaByKode: Record<string, string> = {};
   if (kodes.length) {
-    const ph = kodes.map(() => "?").join(",");
-    const pl = db.prepare(`SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`).all(...kodes) as PenyakitRow[];
+    const c = await getClient();
+    const pl = (await c`
+      SELECT kode_penyakit, nama_penyakit FROM penyakit
+      WHERE kode_penyakit IN ${c(kodes)}
+    `) as unknown as PenyakitRow[];
     for (const p of pl) namaByKode[p.kode_penyakit] = p.nama_penyakit;
   }
 
@@ -34,6 +48,8 @@ export default async function UserRiwayatPage() {
           <i className="bi bi-plus-lg" /> Diagnosa Baru
         </Link>
       </div>
+
+      <AutoDismissFlash flash={flash} />
 
       <div className="card">
         <div className="table-wrapper rounded-xl border-0">
@@ -64,7 +80,7 @@ export default async function UserRiwayatPage() {
                 return (
                   <tr key={r.id}>
                     <td className="font-mono text-xs text-slate-400">{i + 1}</td>
-                    <td>{formatDateId(r.tanggal_diagnosa)}</td>
+                    <td>{formatDateId(String(r.tanggal_diagnosa))}</td>
                     <td>
                       {r.hasil_penyakit ? (
                         <span className="badge-orange">{namaByKode[r.hasil_penyakit] ?? r.hasil_penyakit}</span>

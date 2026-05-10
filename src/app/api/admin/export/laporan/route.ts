@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { getClient, sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import { NextRequest, NextResponse } from "next/server";
@@ -31,22 +31,35 @@ export async function GET(request: NextRequest) {
   const start_date = searchParams.get("start_date") ?? "";
   const end_date = searchParams.get("end_date") ?? "";
 
-  const rows = db
-    .prepare(
-      `SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
-       FROM diagnosa
-       WHERE tanggal_diagnosa >= ? AND tanggal_diagnosa <= ?
-       ORDER BY tanggal_diagnosa DESC`,
-    )
-    .all(`${start_date}T00:00:00`, `${end_date}T23:59:59`) as DiagnosaRow[];
+  const isExcel = format === "excel" || format === "xlsx";
+
+  let rows: DiagnosaRow[];
+  if (start_date && end_date) {
+    const startTs = `${start_date}T00:00:00.000Z`;
+    const endTs = `${end_date}T23:59:59.999Z`;
+    rows = (await sql`
+      SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+      FROM diagnosa
+      WHERE tanggal_diagnosa >= ${startTs}::timestamptz
+        AND tanggal_diagnosa <= ${endTs}::timestamptz
+      ORDER BY tanggal_diagnosa DESC
+    `) as unknown as DiagnosaRow[];
+  } else {
+    rows = (await sql`
+      SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+      FROM diagnosa
+      ORDER BY tanggal_diagnosa DESC
+    `) as unknown as DiagnosaRow[];
+  }
 
   const userIds = [...new Set(rows.map((r) => r.id_user))];
   const namaUser: Record<string, string> = {};
   if (userIds.length) {
-    const ph = userIds.map(() => "?").join(",");
-    const profs = db
-      .prepare(`SELECT id, nama_lengkap FROM users WHERE id IN (${ph})`)
-      .all(...userIds) as UserRow[];
+    const c = await getClient();
+    const profs = (await c`
+      SELECT id, nama_lengkap FROM users
+      WHERE id IN ${c(userIds)}
+    `) as unknown as UserRow[];
     for (const p of profs) namaUser[p.id] = p.nama_lengkap;
   }
 
@@ -55,18 +68,17 @@ export async function GET(request: NextRequest) {
   ];
   const namaPenyakit: Record<string, string> = {};
   if (kodes.length) {
-    const ph = kodes.map(() => "?").join(",");
-    const penyakitRows = db
-      .prepare(
-        `SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`,
-      )
-      .all(...kodes) as PenyakitRow[];
+    const c = await getClient();
+    const penyakitRows = (await c`
+      SELECT kode_penyakit, nama_penyakit FROM penyakit
+      WHERE kode_penyakit IN ${c(kodes)}
+    `) as unknown as PenyakitRow[];
     for (const p of penyakitRows) namaPenyakit[p.kode_penyakit] = p.nama_penyakit;
   }
 
   const tableBody = rows.map((r, i) => [
     String(i + 1),
-    formatDateId(r.tanggal_diagnosa),
+    formatDateId(String(r.tanggal_diagnosa)),
     namaUser[r.id_user] ?? "—",
     r.hasil_penyakit
       ? namaPenyakit[r.hasil_penyakit] ?? r.hasil_penyakit
@@ -74,7 +86,7 @@ export async function GET(request: NextRequest) {
     r.confidence != null ? `${(r.confidence * 100).toFixed(2)}%` : "—",
   ]);
 
-  if (format === "xlsx") {
+  if (isExcel) {
     const sheetData = [
       ["No", "Tanggal", "Nama User", "Hasil Diagnosa", "Kecocokan"],
       ...tableBody,

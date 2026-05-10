@@ -1,5 +1,5 @@
 import { computeDiagnosis } from "@/lib/diagnosis";
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -17,14 +17,21 @@ export default async function HasilDiagnosaPage({ params }: { params: Promise<{ 
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const row = db.prepare("SELECT id, id_user FROM diagnosa WHERE id = ?").get(diagnosaId) as DiagnosaRow | undefined;
+  const rows = await sql`SELECT id, id_user FROM diagnosa WHERE id = ${diagnosaId}`;
+  const row = rows[0] as DiagnosaRow | undefined;
   if (!row || row.id_user !== session.userId) notFound();
 
-  const details = db.prepare("SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ?").all(diagnosaId) as DetailRow[];
+  const details = (await sql`
+    SELECT kode_gejala FROM diagnosa_detail WHERE id_diagnosa = ${diagnosaId}
+  `) as unknown as DetailRow[];
   const selectedGejala = details.map((d) => d.kode_gejala);
 
-  const relRows = db.prepare("SELECT kode_penyakit, kode_gejala FROM relasi").all() as RelasiRow[];
-  const penyakitRows = db.prepare("SELECT kode_penyakit, nama_penyakit FROM penyakit").all() as { kode_penyakit: string; nama_penyakit: string }[];
+  const relRows = (await sql`
+    SELECT kode_penyakit, kode_gejala FROM relasi
+  `) as unknown as RelasiRow[];
+  const penyakitRows = (await sql`
+    SELECT kode_penyakit, nama_penyakit FROM penyakit
+  `) as unknown as { kode_penyakit: string; nama_penyakit: string }[];
   const namaMap = Object.fromEntries(penyakitRows.map((p) => [p.kode_penyakit, p.nama_penyakit]));
   const relasi = relRows.map((r) => ({
     kode_penyakit: r.kode_penyakit,
@@ -34,7 +41,10 @@ export default async function HasilDiagnosaPage({ params }: { params: Promise<{ 
 
   const hasil = computeDiagnosis(selectedGejala, relasi);
   const top = hasil[0];
-  const penyakit = top ? (db.prepare("SELECT * FROM penyakit WHERE kode_penyakit = ?").get(top.kode_penyakit) as PenyakitRow | undefined) : null;
+  const pkRows = top
+    ? await sql`SELECT * FROM penyakit WHERE kode_penyakit = ${top.kode_penyakit}`
+    : [];
+  const penyakit = pkRows[0] as PenyakitRow | undefined;
 
   return (
     <div className="space-y-6">

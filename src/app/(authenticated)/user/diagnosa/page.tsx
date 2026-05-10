@@ -1,5 +1,5 @@
 import { runDiagnosa } from "@/actions/diagnosa";
-import { db } from "@/lib/db";
+import { sql } from "@/lib/db";
 
 type GejalaRow = { kode_gejala: string; nama_gejala: string };
 
@@ -9,9 +9,9 @@ export default async function DiagnosaPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const sp = await searchParams;
-  const gejala = db
-    .prepare("SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala")
-    .all() as GejalaRow[];
+  const gejala = (await sql`
+    SELECT kode_gejala, nama_gejala FROM gejala ORDER BY kode_gejala
+  `) as unknown as GejalaRow[];
 
   return (
     <div className="space-y-6">

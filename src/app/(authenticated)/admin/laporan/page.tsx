@@ -1,24 +1,47 @@
 "use client";
 
+import { DatePickerField } from "@/components/ui/DatePickerField";
 import { useState } from "react";
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+function firstOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
 
 export default function LaporanPage() {
   const [loading, setLoading] = useState<"pdf" | "excel" | null>(null);
+  const [startDate, setStartDate] = useState(firstOfMonth());
+  const [endDate, setEndDate] = useState(today());
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleExport(type: "pdf" | "excel") {
-    setLoading(type);
+  async function handleExport(format: "pdf" | "excel") {
+    if (!startDate || !endDate) {
+      setError("Pilih rentang tanggal terlebih dahulu.");
+      return;
+    }
+    if (startDate > endDate) {
+      setError("Tanggal mulai tidak boleh lebih besar dari tanggal akhir.");
+      return;
+    }
+    setError(null);
+    setLoading(format);
     try {
-      const url = `/api/admin/export/laporan?type=${type}`;
-      const res = await fetch(url);
+      const params = new URLSearchParams({ format, start_date: startDate, end_date: endDate });
+      const res = await fetch(`/api/admin/export/laporan?${params}`);
       if (!res.ok) throw new Error("Gagal mengunduh laporan");
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = type === "pdf" ? "laporan-diagnosa.pdf" : "laporan-diagnosa.xlsx";
+      a.download = format === "pdf"
+        ? `laporan-diagnosa-${startDate}-${endDate}.pdf`
+        : `laporan-diagnosa-${startDate}-${endDate}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
-      alert("Gagal mengunduh laporan. Coba lagi.");
+      setError("Gagal mengunduh laporan. Coba lagi.");
     } finally {
       setLoading(null);
     }
@@ -28,7 +51,35 @@ export default function LaporanPage() {
     <div className="space-y-6">
       <div>
         <h1 className="page-title">Laporan Diagnosa</h1>
-        <p className="page-sub">Unduh laporan data diagnosa sistem</p>
+        <p className="page-sub">Unduh laporan data diagnosa sistem berdasarkan periode</p>
+      </div>
+
+      {/* Date filter card */}
+      <div className="card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <i className="bi bi-calendar-range text-primary" />
+          <h2 className="section-title">Periode Laporan</h2>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <DatePickerField
+            label="Dari Tanggal"
+            value={startDate}
+            onChange={setStartDate}
+            disabled={loading !== null}
+          />
+          <DatePickerField
+            label="Sampai Tanggal"
+            value={endDate}
+            onChange={setEndDate}
+            disabled={loading !== null}
+          />
+        </div>
+        {error && (
+          <div className="alert-error mt-4">
+            <i className="bi bi-exclamation-triangle-fill shrink-0 text-red-400" />
+            {error}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -47,7 +98,8 @@ export default function LaporanPage() {
           >
             {loading === "pdf" ? (
               <>
-                <i className="bi bi-hourglass-split animate-spin" /> Memproses...
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Memproses...
               </>
             ) : (
               <>
@@ -72,7 +124,8 @@ export default function LaporanPage() {
           >
             {loading === "excel" ? (
               <>
-                <i className="bi bi-hourglass-split animate-spin" /> Memproses...
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Memproses...
               </>
             ) : (
               <>
@@ -90,7 +143,7 @@ export default function LaporanPage() {
           <ul className="space-y-2 text-sm text-slate-300">
             <li className="flex items-start gap-2">
               <i className="bi bi-check2 mt-0.5 shrink-0 text-primary" />
-              Data mencakup semua riwayat diagnosa pengguna
+              Data mencakup semua riwayat diagnosa pengguna pada periode terpilih
             </li>
             <li className="flex items-start gap-2">
               <i className="bi bi-check2 mt-0.5 shrink-0 text-primary" />

@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { getClient, sql } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { formatDateId } from "@/lib/format";
 import Link from "next/link";
@@ -11,17 +11,26 @@ export default async function UserDashboardPage() {
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const count = (db.prepare("SELECT COUNT(*) as n FROM diagnosa WHERE id_user = ?").get(session.userId) as { n: number }).n;
+  const [{ n: count }] = (await sql`
+    SELECT COUNT(*)::int AS n FROM diagnosa WHERE id_user = ${session.userId}
+  `) as unknown as { n: number }[];
 
-  const rows = db
-    .prepare("SELECT id, tanggal_diagnosa, confidence, hasil_penyakit FROM diagnosa WHERE id_user = ? ORDER BY tanggal_diagnosa DESC LIMIT 5")
-    .all(session.userId) as DiagnosaRow[];
+  const rows = (await sql`
+    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit
+    FROM diagnosa
+    WHERE id_user = ${session.userId}
+    ORDER BY tanggal_diagnosa DESC
+    LIMIT 5
+  `) as unknown as DiagnosaRow[];
 
   const kodes = [...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
   const namaByKode: Record<string, string> = {};
   if (kodes.length) {
-    const ph = kodes.map(() => "?").join(",");
-    const pl = db.prepare(`SELECT kode_penyakit, nama_penyakit FROM penyakit WHERE kode_penyakit IN (${ph})`).all(...kodes) as PenyakitRow[];
+    const c = await getClient();
+    const pl = (await c`
+      SELECT kode_penyakit, nama_penyakit FROM penyakit
+      WHERE kode_penyakit IN ${c(kodes)}
+    `) as unknown as PenyakitRow[];
     for (const p of pl) namaByKode[p.kode_penyakit] = p.nama_penyakit;
   }
 
@@ -109,7 +118,7 @@ export default async function UserDashboardPage() {
                 return (
                   <tr key={r.id}>
                     <td className="font-mono text-xs text-slate-500">{i + 1}</td>
-                    <td>{formatDateId(r.tanggal_diagnosa)}</td>
+                    <td>{formatDateId(String(r.tanggal_diagnosa))}</td>
                     <td>
                       <span className="badge-orange">{nama}</span>
                     </td>

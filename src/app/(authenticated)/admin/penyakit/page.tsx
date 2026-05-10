@@ -1,5 +1,8 @@
 import { createPenyakit, deletePenyakit, updatePenyakit } from "@/actions/penyakit";
-import { db } from "@/lib/db";
+import { AutoDismissFlash } from "@/components/AutoDismissFlash";
+import { ConfirmSubmitForm } from "@/components/ConfirmSubmitForm";
+import { flashBanner } from "@/lib/flash-banner";
+import { sql } from "@/lib/db";
 import Link from "next/link";
 
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string; deskripsi: string | null; solusi: string | null; pencegahan: string | null };
@@ -7,10 +10,13 @@ type PenyakitRow = { kode_penyakit: string; nama_penyakit: string; deskripsi: st
 export default async function AdminPenyakitPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string; success?: string; error?: string }>;
+  searchParams: Promise<{ edit?: string; success?: string; notice?: string; error?: string }>;
 }) {
   const sp = await searchParams;
-  const rows = db.prepare("SELECT * FROM penyakit ORDER BY kode_penyakit").all() as PenyakitRow[];
+  const flash = flashBanner(sp);
+  const rows = (await sql`
+    SELECT * FROM penyakit ORDER BY kode_penyakit
+  `) as unknown as PenyakitRow[];
   const editing = sp.edit ? rows.find((r) => r.kode_penyakit === sp.edit) : undefined;
 
   return (
@@ -20,12 +26,7 @@ export default async function AdminPenyakitPage({
         <p className="page-sub">Kelola jenis kerusakan kendaraan Toyota Avanza</p>
       </div>
 
-      {(sp.success || sp.error) && (
-        <div className={sp.success ? "alert-success" : "alert-error"}>
-          <i className={`bi ${sp.success ? "bi-check-circle-fill text-green-600" : "bi-exclamation-triangle-fill text-red-500"}`} />
-          {sp.success ? "Data berhasil disimpan." : sp.error}
-        </div>
-      )}
+      <AutoDismissFlash flash={flash} />
 
       {/* Add form */}
       <div className="card">
@@ -76,7 +77,7 @@ export default async function AdminPenyakitPage({
             </div>
           </div>
           <div className="p-5">
-            <form action={updatePenyakit} className="grid gap-4 md:grid-cols-2">
+            <ConfirmSubmitForm action={updatePenyakit} mode="save" className="grid gap-4 md:grid-cols-2">
               <input type="hidden" name="kode_penyakit" value={editing.kode_penyakit} />
               <div className="md:col-span-2">
                 <label className="form-label">Nama Kerusakan</label>
@@ -98,7 +99,7 @@ export default async function AdminPenyakitPage({
                 <button type="submit" className="btn-primary"><i className="bi bi-check2" /> Update</button>
                 <Link href="/admin/penyakit" className="btn-secondary">Batal</Link>
               </div>
-            </form>
+            </ConfirmSubmitForm>
           </div>
         </div>
       )}
@@ -128,12 +129,17 @@ export default async function AdminPenyakitPage({
                       <Link href={`/admin/penyakit?edit=${encodeURIComponent(r.kode_penyakit)}`} className="btn btn-sm btn-warning">
                         <i className="bi bi-pencil-fill" /> Edit
                       </Link>
-                      <form action={deletePenyakit} className="inline">
+                      <ConfirmSubmitForm
+                        action={deletePenyakit}
+                        mode="delete"
+                        className="inline"
+                        message={`Hapus kerusakan ${r.kode_penyakit} — ${r.nama_penyakit}?`}
+                      >
                         <input type="hidden" name="kode_penyakit" value={r.kode_penyakit} />
                         <button type="submit" className="btn btn-sm btn-danger">
                           <i className="bi bi-trash3-fill" />
                         </button>
-                      </form>
+                      </ConfirmSubmitForm>
                     </div>
                   </td>
                 </tr>
