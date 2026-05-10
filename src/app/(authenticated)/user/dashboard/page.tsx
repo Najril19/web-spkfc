@@ -11,17 +11,25 @@ export default async function UserDashboardPage() {
   const session = await getSession();
   if (!session.userId) redirect("/login");
 
-  const [{ n: count }] = (await sql`
-    SELECT COUNT(*)::int AS n FROM diagnosa WHERE id_user = ${session.userId}
-  `) as unknown as { n: number }[];
+  let count = 0;
+  let rows: DiagnosaRow[] = [];
+  let dbError = false;
+  try {
+    const [countRow] = (await sql`
+      SELECT COUNT(*)::int AS n FROM diagnosa WHERE id_user = ${session.userId}
+    `) as unknown as { n: number }[];
+    count = countRow?.n ?? 0;
 
-  const rows = (await sql`
-    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit
-    FROM diagnosa
-    WHERE id_user = ${session.userId}
-    ORDER BY tanggal_diagnosa DESC
-    LIMIT 5
-  `) as unknown as DiagnosaRow[];
+    rows = (await sql`
+      SELECT id, tanggal_diagnosa, confidence, hasil_penyakit
+      FROM diagnosa
+      WHERE id_user = ${session.userId}
+      ORDER BY tanggal_diagnosa DESC
+      LIMIT 5
+    `) as unknown as DiagnosaRow[];
+  } catch {
+    dbError = true;
+  }
 
   const kodes = [...new Set(rows.map((r) => r.hasil_penyakit).filter(Boolean) as string[])];
   const namaByKode: Record<string, string> = {};
@@ -39,6 +47,11 @@ export default async function UserDashboardPage() {
       <div>
         <h1 className="page-title">Selamat datang, {session.nama_lengkap}!</h1>
         <p className="page-sub">Diagnosa kerusakan kendaraan Toyota Avanza Anda</p>
+        {dbError && (
+          <p className="mt-2 text-sm text-amber-400">
+            Database belum merespons. Coba refresh beberapa saat lagi.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

@@ -13,25 +13,43 @@ type UserRow = { id: string; nama_lengkap: string };
 type PenyakitRow = { kode_penyakit: string; nama_penyakit: string };
 
 export default async function AdminDashboardPage() {
-  const [{ n: penyakit }] = (await sql`SELECT COUNT(*)::int AS n FROM penyakit`) as unknown as {
-    n: number;
-  }[];
-  const [{ n: gejala }] = (await sql`SELECT COUNT(*)::int AS n FROM gejala`) as unknown as {
-    n: number;
-  }[];
-  const [{ n: users }] = (await sql`
-    SELECT COUNT(*)::int AS n FROM users WHERE role = 'user'
-  `) as unknown as { n: number }[];
-  const [{ n: diagnosa }] = (await sql`SELECT COUNT(*)::int AS n FROM diagnosa`) as unknown as {
-    n: number;
-  }[];
+  let penyakit = 0;
+  let gejala = 0;
+  let users = 0;
+  let diagnosa = 0;
+  let recent: DiagnosaRow[] = [];
+  let dbError = false;
 
-  const recent = (await sql`
-    SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
-    FROM diagnosa
-    ORDER BY tanggal_diagnosa DESC
-    LIMIT 5
-  `) as unknown as DiagnosaRow[];
+  try {
+    const [rowPenyakit] = (await sql`SELECT COUNT(*)::int AS n FROM penyakit`) as unknown as {
+      n: number;
+    }[];
+    penyakit = rowPenyakit?.n ?? 0;
+
+    const [rowGejala] = (await sql`SELECT COUNT(*)::int AS n FROM gejala`) as unknown as {
+      n: number;
+    }[];
+    gejala = rowGejala?.n ?? 0;
+
+    const [rowUsers] = (await sql`
+      SELECT COUNT(*)::int AS n FROM users WHERE role = 'user'
+    `) as unknown as { n: number }[];
+    users = rowUsers?.n ?? 0;
+
+    const [rowDiagnosa] = (await sql`SELECT COUNT(*)::int AS n FROM diagnosa`) as unknown as {
+      n: number;
+    }[];
+    diagnosa = rowDiagnosa?.n ?? 0;
+
+    recent = (await sql`
+      SELECT id, tanggal_diagnosa, confidence, hasil_penyakit, id_user
+      FROM diagnosa
+      ORDER BY tanggal_diagnosa DESC
+      LIMIT 5
+    `) as unknown as DiagnosaRow[];
+  } catch {
+    dbError = true;
+  }
 
   const userIds = [...new Set(recent.map((r) => r.id_user))];
   const namaUser: Record<string, string> = {};
@@ -67,6 +85,11 @@ export default async function AdminDashboardPage() {
       <div>
         <h1 className="page-title">Dashboard Admin</h1>
         <p className="page-sub">Ringkasan sistem diagnosa kendaraan</p>
+        {dbError && (
+          <p className="mt-2 text-sm text-amber-400">
+            Database belum merespons. Coba refresh beberapa saat lagi.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

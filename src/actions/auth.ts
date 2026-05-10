@@ -19,19 +19,28 @@ export async function loginAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
-  const rows = await sql`SELECT * FROM users WHERE email = ${email}`;
-  const user = rows[0] as UserRow | undefined;
+  let user: UserRow | undefined;
+  try {
+    const rows = await sql`SELECT * FROM users WHERE email = ${email}`;
+    user = rows[0] as UserRow | undefined;
+  } catch {
+    redirect(`/login?error=${encodeURIComponent("Server/database bermasalah, coba lagi")}`);
+  }
 
   if (!user || !compareSync(password, user.password_hash)) {
     redirect(`/login?error=${encodeURIComponent("Email atau password salah")}`);
   }
 
-  const session = await getSession();
-  session.userId = user.id;
-  session.email = user.email;
-  session.role = user.role;
-  session.nama_lengkap = user.nama_lengkap;
-  await session.save();
+  try {
+    const session = await getSession();
+    session.userId = user.id;
+    session.email = user.email;
+    session.role = user.role;
+    session.nama_lengkap = user.nama_lengkap;
+    await session.save();
+  } catch {
+    redirect(`/login?error=${encodeURIComponent("Gagal membuat sesi login, coba lagi")}`);
+  }
 
   redirect(user.role === "admin" ? "/admin/dashboard" : "/user/dashboard");
 }
@@ -45,7 +54,12 @@ export async function registerAction(formData: FormData) {
     redirect(`/register?error=${encodeURIComponent("Semua field wajib diisi")}`);
   }
 
-  const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+  let existing: unknown[] = [];
+  try {
+    existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+  } catch {
+    redirect(`/register?error=${encodeURIComponent("Server/database bermasalah, coba lagi")}`);
+  }
   if (existing.length > 0) {
     redirect(`/register?error=${encodeURIComponent("Email sudah terdaftar")}`);
   }
