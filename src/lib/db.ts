@@ -1,3 +1,7 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+import { hashSync } from "bcryptjs";
 import postgres from "postgres";
 
 declare global {
@@ -242,8 +246,6 @@ async function runMigrate(): Promise<void> {
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@local.id";
   const existing = await raw`SELECT id FROM users WHERE email = ${adminEmail}`;
   if (existing.length === 0) {
-    const { hashSync } = await import("bcryptjs");
-    const { randomUUID } = await import("crypto");
     const pw = hashSync(process.env.ADMIN_PASSWORD ?? "admin123", 10);
     await raw`
       INSERT INTO users (id, email, password_hash, nama_lengkap, role)
