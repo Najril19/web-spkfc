@@ -3,7 +3,7 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
-  serverExternalPackages: ["postgres", "bcryptjs"],
+  serverExternalPackages: ["postgres", "bcryptjs", "jspdf", "jspdf-autotable"],
   webpack(config, { isServer }) {
     if (isServer) {
       // Tangani skema `node:` — Webpack tidak mengenalinya secara default
